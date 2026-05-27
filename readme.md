@@ -6,6 +6,52 @@ The goal is to turn messy folders and bookmark exports into a searchable local a
 
 This project does **not** try to fully understand every file. It creates useful searchable “index cards” from filenames, folder paths, metadata, bookmark titles, URLs, and video frame text.
 
+
+---
+
+## Getting Started
+
+1. **Create a virtual environment and install dependencies**
+
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -e .[dev]
+   ```
+
+2. **Initialize the database**
+
+   ```bash
+   python -m archive_indexer init-db
+   ```
+
+3. **Create or update source config** in `config/sources.yaml` with your folder paths and bookmark export files.
+
+4. **Ingest content**
+
+   ```bash
+   python -m archive_indexer ingest
+   ```
+
+5. **Assign buckets**
+
+   ```bash
+   python -m archive_indexer assign-buckets
+   ```
+
+6. **Run a keyword search**
+
+   ```bash
+   python -m archive_indexer search "ollama embeddings"
+   ```
+
+7. **(Optional) Generate embeddings for semantic search**
+
+   ```bash
+   python -m archive_indexer embed
+   python -m archive_indexer search "local ai vector search" --semantic
+   ```
+
 ---
 
 ## Goals
