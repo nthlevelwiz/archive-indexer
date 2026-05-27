@@ -4,6 +4,9 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+todo: create a class that has a member that stores the db conn so that we can pass it once when instatiated and then have the wrapper take care of everything else
+this means that all below functions should be members of that class, using said connection. we dont want to pass the connection as an arg evertime. 
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS sources (
   id TEXT PRIMARY KEY,

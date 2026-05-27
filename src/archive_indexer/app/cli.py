@@ -7,25 +7,29 @@ import uuid
 from pathlib import Path
 
 from archive_indexer.adapters.db import (
-    connect_db,
-    embedding_exists,
-    fetch_bucket_contents,
-    fetch_bucket_stats,
-    fetch_chunks_for_embedding,
-    fetch_item_bucket_explanations,
-    fetch_item_by_path_or_url,
-    fetch_video_items,
-    init_db,
-    insert_embedding,
-    insert_frame_ocr_chunk,
-    search_chunks,
+    connect_db as db_adapter_connect_db,
+    # todo: use import naming that clarifies where things are coming from, see above
+#     embedding_exists,
+#     fetch_bucket_contents,
+#     fetch_bucket_stats,
+#     fetch_chunks_for_embedding,
+#     fetch_item_bucket_explanations,
+#     fetch_item_by_path_or_url,
+#     fetch_video_items,
+#     init_db,
+#     insert_embedding,
+#     insert_frame_ocr_chunk,
+#     search_chunks,
 )
-from archive_indexer.adapters.embedding import embed_text
-from archive_indexer.adapters.ocr import extract_frame_ocr_text
-from archive_indexer.services.bucket_service import assign_buckets
-from archive_indexer.services.ingest_service import ingest_bookmarks, ingest_folders
+from archive_indexer.adapters.embedding import embed_text as imbedding_adapter_imbed_text
+# todo: use import naming that clarifies where things are coming from, see above
+# from archive_indexer.adapters.ocr import extract_frame_ocr_text
+# from archive_indexer.services.bucket_service import assign_buckets
+# from archive_indexer.services.ingest_service import ingest_bookmarks, ingest_folders
 
-init_db_command_arg = "init-db"
+
+STR_INIT_DB_COMMAND_ARG = "init-db"
+# todo: use all caps and prefix STR_ for arg variables, use above example
 ingest_command_arg = "ingest"
 ingest_bookmarks_command_arg = "ingest-bookmarks"
 assign_buckets_command_arg = "assign-buckets"
@@ -45,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config-dir", default="config", help="Directory for config YAML files")
 
     subparsers = parser.add_subparsers(dest="command")
-    subparsers.add_parser(init_db_command_arg, help="Initialize SQLite schema")
+    subparsers.add_parser(STR_INIT_DB_COMMAND_ARG, help="Initialize SQLite schema")
 
     p_ingest = subparsers.add_parser(ingest_command_arg, help="Ingest folder sources")
     p_ingest.add_argument("--source", default=None)
@@ -86,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
     db_path = Path(args.data_dir) / "archive_index.sqlite"
     config_dir = Path(args.config_dir)
 
-    if args.command == init_db_command_arg:
+    if args.command == STR_INIT_DB_COMMAND_ARG:
         init_db(db_path)
         logging.info("Initialized database at %s", db_path)
         return 0
@@ -103,7 +107,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"assigned {n} bucket rows")
         return 0
 
-    conn = connect_db(db_path)
+
+    # conn = connect_db(db_path)
+    # we should instatiate an adapter class object and use that, don't want to pass conn as an arg all the time. 
     try:
         if args.command == search_command_arg:
             for r in search_chunks(conn, args.query, args.bucket):
@@ -111,13 +117,19 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == embed_command_arg:
-            model = "local-hash-v1"
+            # model = "local-hash-v1"
+            # move this to adapter
             rows = fetch_chunks_for_embedding(conn)
             for r in rows:
-                if embedding_exists(conn, r["id"], model):
+                r['id'] = row_id
+                if embedding_exists(conn, row_id, model):
                     continue
                 emb = embed_text(r["text"])
-                insert_embedding(conn, str(uuid.uuid4()), r["id"], model, json.dumps(emb), len(emb))
+                # todo: use variable names
+                new_uuid_str = str(uuid.uuid4())
+                embedding_length = len(emb)
+                json_serialized = json.dumps(emb)
+                insert_embedding(conn, str(uuid.uuid4()), row_id, model, json_serialized, embedding_length)
             conn.commit()
             print("embedded")
             return 0
@@ -128,7 +140,10 @@ def main(argv: list[str] | None = None) -> int:
                 txt = extract_frame_ocr_text(r["path_or_url"], second=5)
                 cid = str(uuid.uuid4())
                 insert_frame_ocr_chunk(conn, cid, r["id"], txt)
-            conn.commit()
+            # conn.commit()
+            # todo: use adapter class
+            # something like
+            db_adapter.commit()
             print("ocr complete")
             return 0
 
