@@ -1088,3 +1088,53 @@ python -m archive_indexer search "text seen in a saved tiktok"
 ```
 
 That order gives value quickly without getting blocked on OCR, embeddings, or UI work.
+
+---
+
+## Fake sample input generator
+
+Generate deterministic synthetic files for ingestion, bucket classification, chunking, OCR/caption, and retrieval evaluation:
+
+```bash
+make generate-fake-inputs
+# or
+python scripts/generate_fake_inputs.py
+```
+
+Clean generated files:
+
+```bash
+make clean-fake-inputs
+# or
+python scripts/generate_fake_inputs.py --clean
+```
+
+Generated output is written to `sample_data/generated/` and is intentionally gitignored. Tiny committed fixtures live in `tests/fixtures/`.
+
+Optional dependencies and fallbacks:
+
+- `reportlab` for richer PDF generation; fallback is deterministic placeholder text with `.pdf` extension.
+- `python-docx` for real DOCX files; fallback is deterministic placeholder text with `.docx` extension.
+- `ffmpeg` for `.mp3` conversion; fallback is `.wav`.
+- Video generation is tool-agnostic with deterministic `.webm` placeholder and deterministic captions.
+- `.doc` conversion is optional and not required; generator continues without it.
+
+Use manifests for future evaluation:
+
+- bucket tests: `sample_data/generated/manifests/bucket_expectations.json`
+- chunking tests: `sample_data/generated/manifests/chunk_manifest.json`
+- retrieval tests: `sample_data/generated/manifests/retrieval_queries.json` + `relevance_judgments.json`
+
+## Future retrieval / needle-in-haystack evaluation
+
+The generated data is structured as a model-agnostic IR benchmark with:
+
+- corpus manifest
+- chunk manifest
+- bucket expectations
+- retrieval queries
+- relevance judgments (qrels)
+- hard negatives
+- evaluation config
+
+This allows testing exact match, filename search, metadata filters, BM25/keyword search, vector search, hybrid search, reranking, OCR search, caption search, and RAG without locking into a specific model, embedding provider, or database.
