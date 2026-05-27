@@ -1157,3 +1157,27 @@ Suggested dependency flow for this repo:
 - `archive_indexer.config` should stay leaf/simple and avoid importing runtime modules
 
 A starter `.importlinter` config is included at repo root.
+
+## Testing and coverage
+
+This project uses `pytest` with `pytest-cov` and `coverage.py` so test runs report both line and branch coverage.
+
+- **Line coverage** means a line of code executed at least once.
+- **Branch coverage** means control-flow outcomes (for example `if` true/false paths) were exercised.
+- **Mutation testing** with `mutmut` intentionally changes production code and checks whether tests fail.
+- **Surviving mutants** are a signal that code may run during tests but assertions are not strict enough to detect logic changes.
+
+Commands:
+
+```bash
+pytest
+pytest --cov=src/archive_indexer --cov-branch --cov-report=term-missing:skip-covered
+mutmut run
+mutmut browse
+```
+
+Notes:
+
+- Coverage is useful for finding untested areas, but coverage percentages alone do not prove correctness.
+- Mutation testing is slower than normal tests, so run it before merges or for high-value logic rather than every local edit.
+- On Windows, `mutmut` may work best inside WSL because it depends on fork-style process behavior.
