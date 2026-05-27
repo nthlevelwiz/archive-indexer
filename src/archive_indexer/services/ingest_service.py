@@ -8,13 +8,12 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..config.settings import load_yaml
+from ..core.parsers import mini_yaml_parse
 from ..adapters.db import connect_db, now_iso, upsert_source, upsert_item, upsert_chunk, insert_fts, get_item_row_by_path, get_chunk_by_item_and_type, upsert_bookmark_source
 from ..core.parsers import BookmarkParser, extract_domain
 
-# todo: rename exts to extensions, be readable pls
-AUDIO_EXTS = {".mp3", ".wav", ".flac", ".aiff", ".ogg", ".m4a", ".aac", ".mid", ".midi"}
-VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".aiff", ".ogg", ".m4a", ".aac", ".mid", ".midi"}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
 
 
 def hash_file(path: Path) -> str:
@@ -27,9 +26,9 @@ def hash_file(path: Path) -> str:
 
 def classify_item(path: Path) -> str:
     ext = path.suffix.lower()
-    if ext in AUDIO_EXTS:
+    if ext in AUDIO_EXTENSIONS:
         return "audio"
-    if ext in VIDEO_EXTS:
+    if ext in VIDEO_EXTENSIONS:
         return "video"
     return "file"
 
@@ -39,7 +38,7 @@ def should_skip(path: Path) -> bool:
 
 
 def load_sources(config_dir: Path) -> list[dict]:
-    data = load_yaml(config_dir / "sources.yaml")
+    data = mini_yaml_parse((config_dir / "sources.yaml").read_text(encoding="utf-8"))
     sources = data.get("sources", [])
     if not isinstance(sources, list):
         raise ValueError("sources must be a list")
@@ -93,23 +92,22 @@ def create_basic_chunks(conn, item_id: str, path: Path) -> None:
         upsert_chunk(conn, (chunk_id, item_id, chunk_type, text, "{}", now_iso()))
         insert_fts(conn, chunk_id, text)
 
-# ingestion shouldn't distinguish between bookmarks and other files, so this hsould move into the ingest_folders method
-# def ingest_bookmarks(db_path: Path, bookmark_file: Path) -> int:
-#     conn = connect_db(db_path)
-#     parser = BookmarkParser()
-#     parser.feed(bookmark_file.read_text(encoding="utf-8", errors="ignore"))
-#     source_id = f"bookmark:{bookmark_file}"
-#     upsert_bookmark_source(conn, source_id, str(bookmark_file), bookmark_file.name, "{}")
-#     count = 0
-#     for bm in parser.items:
-#         item_id = str(uuid.uuid4())
-#         domain = extract_domain(bm["url"])
-#         upsert_item(conn, (item_id, source_id, "bookmark", bm["url"], bm["title"], "", "", 0, "", "", json.dumps({"domain": domain, "folder": bm["folder"]}), now_iso()))
-#         chunk_id = str(uuid.uuid4())
-#         text = f"TITLE: {bm['title']}\nURL: {bm['url']}\nDOMAIN: {domain}\nFOLDER: {bm['folder']}"
-#         upsert_chunk(conn, (chunk_id, item_id, "bookmark_metadata", text, "{}", now_iso()))
-#         insert_fts(conn, chunk_id, text)
-#         count += 1
-#     conn.commit()
-#     conn.close()
-#     return count
+def ingest_bookmarks(db_path: Path, bookmark_file: Path) -> int:
+    conn = connect_db(db_path)
+    parser = BookmarkParser()
+    parser.feed(bookmark_file.read_text(encoding="utf-8", errors="ignore"))
+    source_id = f"bookmark:{bookmark_file}"
+    upsert_bookmark_source(conn, source_id, str(bookmark_file), bookmark_file.name, "{}")
+    count = 0
+    for bm in parser.items:
+        item_id = str(uuid.uuid4())
+        domain = extract_domain(bm["url"])
+        upsert_item(conn, (item_id, source_id, "bookmark", bm["url"], bm["title"], "", "", 0, "", "", json.dumps({"domain": domain, "folder": bm["folder"]}), now_iso()))
+        chunk_id = str(uuid.uuid4())
+        text = f"TITLE: {bm['title']}\nURL: {bm['url']}\nDOMAIN: {domain}\nFOLDER: {bm['folder']}"
+        upsert_chunk(conn, (chunk_id, item_id, "bookmark_metadata", text, "{}", now_iso()))
+        insert_fts(conn, chunk_id, text)
+        count += 1
+    conn.commit()
+    conn.close()
+    return count

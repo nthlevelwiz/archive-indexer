@@ -161,3 +161,66 @@ def upsert_bookmark_source(conn, source_id: str, bookmark_path: str, label: str,
         "INSERT OR REPLACE INTO sources(id, source_type, root_path_or_file, label, config_json, created_at) VALUES (?, 'bookmark_html', ?, ?, ?, ?)",
         (source_id, bookmark_path, label, config_json, now_iso()),
     )
+
+
+def search_chunks(conn, query: str, bucket: str | None = None):
+    sql = """SELECT i.path_or_url, c.text FROM chunk_fts f JOIN chunks c ON c.id=f.chunk_id JOIN items i ON i.id=c.item_id """
+    params: list[str] = []
+    if bucket:
+        sql += "JOIN item_buckets ib ON ib.item_id=i.id WHERE ib.bucket_name=? AND f.text MATCH ?"
+        params = [bucket, query]
+    else:
+        sql += "WHERE f.text MATCH ?"
+        params = [query]
+    return conn.execute(sql, params).fetchall()
+
+
+def fetch_chunks_for_embedding(conn):
+    return conn.execute("SELECT id, text FROM chunks").fetchall()
+
+
+def embedding_exists(conn, chunk_id: str, model: str):
+    return conn.execute("SELECT 1 FROM embeddings WHERE chunk_id=? AND model=?", (chunk_id, model)).fetchone() is not None
+
+
+def insert_embedding(conn, embedding_id: str, chunk_id: str, model: str, embedding_json: str, dimensions: int):
+    conn.execute(
+        "INSERT INTO embeddings(id, chunk_id, model, embedding_json, dimensions, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+        (embedding_id, chunk_id, model, embedding_json, dimensions),
+    )
+
+
+def fetch_video_items(conn):
+    return conn.execute("SELECT id, path_or_url FROM items WHERE item_type='video'").fetchall()
+
+
+def insert_frame_ocr_chunk(conn, chunk_id: str, item_id: str, text: str):
+    conn.execute(
+        "INSERT INTO chunks(id, item_id, chunk_type, text, timestamp_start, timestamp_end, metadata_json, created_at) VALUES (?, ?, 'frame_ocr', ?, 5.0, 5.0, '{}', datetime('now'))",
+        (chunk_id, item_id, text),
+    )
+    conn.execute("INSERT INTO chunk_fts(chunk_id, text) VALUES (?, ?)", (chunk_id, text))
+
+
+def fetch_item_by_path_or_url(conn, path_or_url: str):
+    return conn.execute("SELECT * FROM items WHERE path_or_url=?", (path_or_url,)).fetchone()
+
+
+def fetch_item_bucket_explanations(conn, path_or_url: str):
+    return conn.execute(
+        "SELECT bucket_name, confidence, evidence_json FROM item_buckets ib JOIN items i ON i.id=ib.item_id WHERE i.path_or_url=?",
+        (path_or_url,),
+    ).fetchall()
+
+
+def fetch_bucket_contents(conn, bucket_name: str):
+    return conn.execute(
+        "SELECT i.path_or_url FROM item_buckets ib JOIN items i ON i.id=ib.item_id WHERE ib.bucket_name=?",
+        (bucket_name,),
+    ).fetchall()
+
+
+def fetch_bucket_stats(conn):
+    return conn.execute(
+        "SELECT bucket_name, COUNT(*) AS c FROM item_buckets GROUP BY bucket_name ORDER BY c DESC"
+    ).fetchall()
