@@ -1,0 +1,3 @@
+sources:
+  - label: sample_generated
+    path: sample_data/generated
