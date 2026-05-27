@@ -9,6 +9,7 @@ description = "Local-first archive indexing MVP"
 requires-python = ">=3.10"
 dependencies = [
   "PyYAML>=6.0",
+  "pydeps>=1.12",
 ]
 
 
