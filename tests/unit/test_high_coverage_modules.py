@@ -9,7 +9,6 @@ from archive_indexer.adapters import db as db_mod
 from archive_indexer.adapters.embedding import cosine_similarity, embed_text
 from archive_indexer.adapters.ocr import extract_frame_ocr_text
 from archive_indexer.app import cli
-from archive_indexer.config import settings
 from archive_indexer.services import ingest_service
 
 
@@ -19,18 +18,6 @@ def test_embedding_and_ocr_basics():
     assert pytest.approx(sum(v * v for v in emb), rel=1e-6) == 1.0
     assert cosine_similarity([1.0, 0.0], [1.0, 1.0]) == 1.0
     assert extract_frame_ocr_text("/tmp/my-video_file.mp4", second=9) == "frame 9s text from my video file"
-
-
-def test_settings_load_yaml_fallback_and_validation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    p = tmp_path / "a.yaml"
-    p.write_text("a: 1\n", encoding="utf-8")
-    monkeypatch.setattr(settings, "yaml", None)
-    assert settings.load_yaml(p) == {}
-
-    bad = tmp_path / "bad.yaml"
-    bad.write_text("- a\n", encoding="utf-8")
-    with pytest.raises(AssertionError):
-        settings.load_yaml(bad)
 
 
 def _new_db(tmp_path: Path):

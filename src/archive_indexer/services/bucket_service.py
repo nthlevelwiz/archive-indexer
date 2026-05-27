@@ -5,12 +5,12 @@ import re
 import uuid
 from pathlib import Path
 
-from ..config.settings import load_yaml
+from ..core.parsers import mini_yaml_parse
 from ..adapters.db import connect_db, now_iso, upsert_bucket_definition, insert_bucket_rule, upsert_item_bucket
 
 
 def assign_buckets(db_path: Path, config_dir: Path) -> int:
-    data = load_yaml(config_dir / "buckets.yaml")
+    data = mini_yaml_parse((config_dir / "buckets.yaml").read_text(encoding="utf-8"))
     buckets = data.get("buckets", [])
     conn = connect_db(db_path)
     assigned = 0

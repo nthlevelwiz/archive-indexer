@@ -14,7 +14,6 @@ src/archive_indexer/adapters/ocr.py
 src/archive_indexer/app/__init__.py
 src/archive_indexer/app/cli.py
 src/archive_indexer/config/__init__.py
-src/archive_indexer/config/settings.py
 src/archive_indexer/core/__init__.py
 src/archive_indexer/core/parsers.py
 src/archive_indexer/core/yaml_parser.py
