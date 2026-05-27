@@ -1,2 +1,12 @@
 sample_data/generated/
 *.local.json
+.venv*
+
+.coverage
+.venv/
+data/
+tests/__pycache__/
+tests/sample_data/
+tests/unit/__pycache__/
+*.pyc
+__pycache__/
