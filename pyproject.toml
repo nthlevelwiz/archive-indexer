@@ -11,6 +11,15 @@ dependencies = [
   "PyYAML>=6.0",
 ]
 
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+  "coverage>=7.0",
+  "mutmut>=3.0",
+]
+
 [project.scripts]
 archive-indexer = "archive_indexer.cli:main"
 
@@ -22,3 +31,30 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = [
+  "-q",
+  "--cov=src/archive_indexer",
+  "--cov-branch",
+  "--cov-report=term-missing:skip-covered",
+  "--cov-report=html",
+  "--cov-fail-under=90",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["src/archive_indexer"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 90
+exclude_lines = [
+  "pragma: no cover",
+  "if __name__ == .__main__.:",
+  "raise NotImplementedError",
+]
+
+[tool.mutmut]
+source_paths = ["src/archive_indexer"]
+pytest_add_cli_args_test_selection = ["tests"]
