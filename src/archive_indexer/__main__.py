@@ -1,4 +1,4 @@
-from archive_indexer.cli import main
+from archive_indexer.app.cli import main
 
 if __name__ == "__main__":
     raise SystemExit(main())
