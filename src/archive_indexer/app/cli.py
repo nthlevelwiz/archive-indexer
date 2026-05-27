@@ -7,25 +7,14 @@ import uuid
 from pathlib import Path
 
 from archive_indexer.adapters.db import (
+    DatabaseAdapter,
     connect_db as db_adapter_connect_db,
-    # todo: use import naming that clarifies where things are coming from, see above
-#     embedding_exists,
-#     fetch_bucket_contents,
-#     fetch_bucket_stats,
-#     fetch_chunks_for_embedding,
-#     fetch_item_bucket_explanations,
-#     fetch_item_by_path_or_url,
-#     fetch_video_items,
-#     init_db,
-#     insert_embedding,
-#     insert_frame_ocr_chunk,
-#     search_chunks,
+    init_db,
 )
-from archive_indexer.adapters.embedding import embed_text as imbedding_adapter_imbed_text
-# todo: use import naming that clarifies where things are coming from, see above
-# from archive_indexer.adapters.ocr import extract_frame_ocr_text
-# from archive_indexer.services.bucket_service import assign_buckets
-# from archive_indexer.services.ingest_service import ingest_bookmarks, ingest_folders
+from archive_indexer.adapters.embedding import embed_text as embedding_adapter_embed_text
+from archive_indexer.adapters.ocr import extract_frame_ocr_text as ocr_adapter_extract_frame_ocr_text
+from archive_indexer.services.bucket_service import assign_buckets as bucket_service_assign_buckets
+from archive_indexer.services.ingest_service import ingest_bookmarks as ingest_service_ingest_bookmarks, ingest_folders as ingest_service_ingest_folders
 
 
 STR_INIT_DB_COMMAND_ARG = "init-db"
@@ -95,74 +84,68 @@ def main(argv: list[str] | None = None) -> int:
         logging.info("Initialized database at %s", db_path)
         return 0
     if args.command == ingest_command_arg:
-        n = ingest_folders(db_path, config_dir, args.source)
+        n = ingest_service_ingest_folders(db_path, config_dir, args.source)
         print(f"ingested {n} items")
         return 0
     if args.command == ingest_bookmarks_command_arg:
-        n = ingest_bookmarks(db_path, Path(args.path))
+        n = ingest_service_ingest_bookmarks(db_path, Path(args.path))
         print(f"ingested {n} bookmarks")
         return 0
     if args.command == assign_buckets_command_arg:
-        n = assign_buckets(db_path, config_dir)
+        n = bucket_service_assign_buckets(db_path, config_dir)
         print(f"assigned {n} bucket rows")
         return 0
 
 
-    # conn = connect_db(db_path)
-    # we should instatiate an adapter class object and use that, don't want to pass conn as an arg all the time. 
+    conn = db_adapter_connect_db(db_path)
+    db_adapter = DatabaseAdapter(conn)
     try:
         if args.command == search_command_arg:
-            for r in search_chunks(conn, args.query, args.bucket):
+            for r in db_adapter.search_chunks(args.query, args.bucket):
                 print(f"{r['path_or_url']}\n{r['text'][:120]}")
             return 0
 
         if args.command == embed_command_arg:
-            # model = "local-hash-v1"
-            # move this to adapter
-            rows = fetch_chunks_for_embedding(conn)
+            model = "local-hash-v1"
+            rows = db_adapter.fetch_chunks_for_embedding()
             for r in rows:
-                r['id'] = row_id
-                if embedding_exists(conn, row_id, model):
+                row_id = r["id"]
+                if db_adapter.embedding_exists(row_id, model):
                     continue
-                emb = embed_text(r["text"])
-                # todo: use variable names
-                new_uuid_str = str(uuid.uuid4())
+                emb = embedding_adapter_embed_text(r["text"])
                 embedding_length = len(emb)
                 json_serialized = json.dumps(emb)
-                insert_embedding(conn, str(uuid.uuid4()), row_id, model, json_serialized, embedding_length)
+                db_adapter.insert_embedding(str(uuid.uuid4()), row_id, model, json_serialized, embedding_length)
             conn.commit()
             print("embedded")
             return 0
 
         if args.command == ocr_videos_command_arg:
-            rows = fetch_video_items(conn)
+            rows = db_adapter.fetch_video_items()
             for r in rows:
-                txt = extract_frame_ocr_text(r["path_or_url"], second=5)
+                txt = ocr_adapter_extract_frame_ocr_text(r["path_or_url"], second=5)
                 cid = str(uuid.uuid4())
-                insert_frame_ocr_chunk(conn, cid, r["id"], txt)
-            # conn.commit()
-            # todo: use adapter class
-            # something like
-            db_adapter.commit()
+                db_adapter.insert_frame_ocr_chunk(cid, r["id"], txt)
+            conn.commit()
             print("ocr complete")
             return 0
 
         if args.command == show_item_command_arg:
-            print(dict(fetch_item_by_path_or_url(conn, args.path_or_url) or {}))
+            print(dict(db_adapter.fetch_item_by_path_or_url(args.path_or_url) or {}))
             return 0
 
         if args.command == explain_buckets_command_arg:
-            for r in fetch_item_bucket_explanations(conn, args.path_or_url):
+            for r in db_adapter.fetch_item_bucket_explanations(args.path_or_url):
                 print(dict(r))
             return 0
 
         if args.command in {list_bucket_command_arg, list_bucket_contents_command_arg}:
-            for r in fetch_bucket_contents(conn, args.bucket_name):
+            for r in db_adapter.fetch_bucket_contents(args.bucket_name):
                 print(r["path_or_url"])
             return 0
 
         if args.command == bucket_stats_command_arg:
-            for r in fetch_bucket_stats(conn):
+            for r in db_adapter.fetch_bucket_stats():
                 print(f"{r['bucket_name']}\t{r['c']}")
             return 0
     finally:

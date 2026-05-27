@@ -4,9 +4,6 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-todo: create a class that has a member that stores the db conn so that we can pass it once when instatiated and then have the wrapper take care of everything else
-this means that all below functions should be members of that class, using said connection. we dont want to pass the connection as an arg evertime. 
-
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS sources (
   id TEXT PRIMARY KEY,
@@ -120,110 +117,175 @@ def init_db(db_path: str | Path) -> None:
         conn.close()
 
 
+class DatabaseAdapter:
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def upsert_source(self, source_id, root_path, label, config_json):
+        self.conn.execute("INSERT OR REPLACE INTO sources(id, source_type, root_path_or_file, label, config_json, created_at) VALUES (?, 'folder', ?, ?, ?, ?)", (source_id, root_path, label, config_json, now_iso()))
+
+    def upsert_item(self, values: tuple):
+        self.conn.execute("""INSERT OR REPLACE INTO items(
+            id, source_id, item_type, path_or_url, filename, extension, mime_type, size_bytes,
+            modified_time, content_hash, metadata_json, indexed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", values)
+
+    def upsert_chunk(self, values: tuple):
+        self.conn.execute("INSERT OR REPLACE INTO chunks(id, item_id, chunk_type, text, timestamp_start, timestamp_end, metadata_json, created_at) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?)", values)
+
+    def insert_fts(self, chunk_id: str, text: str):
+        self.conn.execute("INSERT INTO chunk_fts(chunk_id, text) VALUES (?, ?)", (chunk_id, text))
+
+    def upsert_bucket_definition(self, name: str, description: str, bucket_type: str):
+        self.conn.execute("INSERT OR REPLACE INTO bucket_definitions(id, name, description, bucket_type, is_active, created_at) VALUES (?, ?, ?, ?, 1, ?)", (name, name, description, bucket_type, now_iso()))
+
+    def insert_bucket_rule(self, rule_id: str, bucket_name: str, rule_type: str, pattern: str, weight: float, applies_to: str):
+        self.conn.execute("INSERT INTO bucket_rules(id, bucket_name, rule_type, pattern, weight, applies_to, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?)", (rule_id, bucket_name, rule_type, pattern, weight, applies_to, now_iso()))
+
+    def upsert_item_bucket(self, item_id: str, bucket_name: str, confidence: float, evidence_json: str, assigned_by: str, assigned_at: str):
+        self.conn.execute("INSERT OR REPLACE INTO item_buckets(item_id, bucket_name, confidence, evidence_json, assigned_by, assigned_at) VALUES (?, ?, ?, ?, ?, ?)", (item_id, bucket_name, confidence, evidence_json, assigned_by, assigned_at))
+
+    def get_item_row_by_path(self, path_or_url: str):
+        return self.conn.execute("SELECT id, modified_time, size_bytes FROM items WHERE path_or_url = ?", (path_or_url,)).fetchone()
+
+    def get_chunk_by_item_and_type(self, item_id: str, chunk_type: str):
+        return self.conn.execute("SELECT id FROM chunks WHERE item_id = ? AND chunk_type = ?", (item_id, chunk_type)).fetchone()
+
+    def upsert_bookmark_source(self, source_id: str, bookmark_path: str, label: str, config_json: str):
+        self.conn.execute(
+            "INSERT OR REPLACE INTO sources(id, source_type, root_path_or_file, label, config_json, created_at) VALUES (?, 'bookmark_html', ?, ?, ?, ?)",
+            (source_id, bookmark_path, label, config_json, now_iso()),
+        )
+
+    def search_chunks(self, query: str, bucket: str | None = None):
+        sql = """SELECT i.path_or_url, c.text FROM chunk_fts f JOIN chunks c ON c.id=f.chunk_id JOIN items i ON i.id=c.item_id """
+        params: list[str] = []
+        if bucket:
+            sql += "JOIN item_buckets ib ON ib.item_id=i.id WHERE ib.bucket_name=? AND f.text MATCH ?"
+            params = [bucket, query]
+        else:
+            sql += "WHERE f.text MATCH ?"
+            params = [query]
+        return self.conn.execute(sql, params).fetchall()
+
+    def fetch_chunks_for_embedding(self):
+        return self.conn.execute("SELECT id, text FROM chunks").fetchall()
+
+    def embedding_exists(self, chunk_id: str, model: str):
+        return self.conn.execute("SELECT 1 FROM embeddings WHERE chunk_id=? AND model=?", (chunk_id, model)).fetchone() is not None
+
+    def insert_embedding(self, embedding_id: str, chunk_id: str, model: str, embedding_json: str, dimensions: int):
+        self.conn.execute(
+            "INSERT INTO embeddings(id, chunk_id, model, embedding_json, dimensions, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+            (embedding_id, chunk_id, model, embedding_json, dimensions),
+        )
+
+    def fetch_video_items(self):
+        return self.conn.execute("SELECT id, path_or_url FROM items WHERE item_type='video'").fetchall()
+
+    def insert_frame_ocr_chunk(self, chunk_id: str, item_id: str, text: str):
+        self.conn.execute(
+            "INSERT INTO chunks(id, item_id, chunk_type, text, timestamp_start, timestamp_end, metadata_json, created_at) VALUES (?, ?, 'frame_ocr', ?, 5.0, 5.0, '{}', datetime('now'))",
+            (chunk_id, item_id, text),
+        )
+        self.conn.execute("INSERT INTO chunk_fts(chunk_id, text) VALUES (?, ?)", (chunk_id, text))
+
+    def fetch_item_by_path_or_url(self, path_or_url: str):
+        return self.conn.execute("SELECT * FROM items WHERE path_or_url=?", (path_or_url,)).fetchone()
+
+    def fetch_item_bucket_explanations(self, path_or_url: str):
+        return self.conn.execute(
+            "SELECT bucket_name, confidence, evidence_json FROM item_buckets ib JOIN items i ON i.id=ib.item_id WHERE i.path_or_url=?",
+            (path_or_url,),
+        ).fetchall()
+
+    def fetch_bucket_contents(self, bucket_name: str):
+        return self.conn.execute(
+            "SELECT i.path_or_url FROM item_buckets ib JOIN items i ON i.id=ib.item_id WHERE ib.bucket_name=?",
+            (bucket_name,),
+        ).fetchall()
+
+    def fetch_bucket_stats(self):
+        return self.conn.execute(
+            "SELECT bucket_name, COUNT(*) AS c FROM item_buckets GROUP BY bucket_name ORDER BY c DESC"
+        ).fetchall()
+
+
 def upsert_source(conn, source_id, root_path, label, config_json):
-    conn.execute("INSERT OR REPLACE INTO sources(id, source_type, root_path_or_file, label, config_json, created_at) VALUES (?, 'folder', ?, ?, ?, ?)", (source_id, root_path, label, config_json, now_iso()))
+    DatabaseAdapter(conn).upsert_source(source_id, root_path, label, config_json)
 
 
 def upsert_item(conn, values: tuple):
-    conn.execute("""INSERT OR REPLACE INTO items(
-        id, source_id, item_type, path_or_url, filename, extension, mime_type, size_bytes,
-        modified_time, content_hash, metadata_json, indexed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", values)
+    DatabaseAdapter(conn).upsert_item(values)
 
 
 def upsert_chunk(conn, values: tuple):
-    conn.execute("INSERT OR REPLACE INTO chunks(id, item_id, chunk_type, text, timestamp_start, timestamp_end, metadata_json, created_at) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?)", values)
+    DatabaseAdapter(conn).upsert_chunk(values)
 
 
 def insert_fts(conn, chunk_id: str, text: str):
-    conn.execute("INSERT INTO chunk_fts(chunk_id, text) VALUES (?, ?)", (chunk_id, text))
+    DatabaseAdapter(conn).insert_fts(chunk_id, text)
 
 
 def upsert_bucket_definition(conn, name: str, description: str, bucket_type: str):
-    conn.execute("INSERT OR REPLACE INTO bucket_definitions(id, name, description, bucket_type, is_active, created_at) VALUES (?, ?, ?, ?, 1, ?)", (name, name, description, bucket_type, now_iso()))
+    DatabaseAdapter(conn).upsert_bucket_definition(name, description, bucket_type)
 
 
 def insert_bucket_rule(conn, rule_id: str, bucket_name: str, rule_type: str, pattern: str, weight: float, applies_to: str):
-    conn.execute("INSERT INTO bucket_rules(id, bucket_name, rule_type, pattern, weight, applies_to, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?)", (rule_id, bucket_name, rule_type, pattern, weight, applies_to, now_iso()))
+    DatabaseAdapter(conn).insert_bucket_rule(rule_id, bucket_name, rule_type, pattern, weight, applies_to)
 
 
 def upsert_item_bucket(conn, item_id: str, bucket_name: str, confidence: float, evidence_json: str, assigned_by: str, assigned_at: str):
-    conn.execute("INSERT OR REPLACE INTO item_buckets(item_id, bucket_name, confidence, evidence_json, assigned_by, assigned_at) VALUES (?, ?, ?, ?, ?, ?)", (item_id, bucket_name, confidence, evidence_json, assigned_by, assigned_at))
+    DatabaseAdapter(conn).upsert_item_bucket(item_id, bucket_name, confidence, evidence_json, assigned_by, assigned_at)
 
 
 def get_item_row_by_path(conn, path_or_url: str):
-    return conn.execute("SELECT id, modified_time, size_bytes FROM items WHERE path_or_url = ?", (path_or_url,)).fetchone()
+    return DatabaseAdapter(conn).get_item_row_by_path(path_or_url)
 
 
 def get_chunk_by_item_and_type(conn, item_id: str, chunk_type: str):
-    return conn.execute("SELECT id FROM chunks WHERE item_id = ? AND chunk_type = ?", (item_id, chunk_type)).fetchone()
+    return DatabaseAdapter(conn).get_chunk_by_item_and_type(item_id, chunk_type)
 
 
 def upsert_bookmark_source(conn, source_id: str, bookmark_path: str, label: str, config_json: str):
-    conn.execute(
-        "INSERT OR REPLACE INTO sources(id, source_type, root_path_or_file, label, config_json, created_at) VALUES (?, 'bookmark_html', ?, ?, ?, ?)",
-        (source_id, bookmark_path, label, config_json, now_iso()),
-    )
+    DatabaseAdapter(conn).upsert_bookmark_source(source_id, bookmark_path, label, config_json)
 
 
 def search_chunks(conn, query: str, bucket: str | None = None):
-    sql = """SELECT i.path_or_url, c.text FROM chunk_fts f JOIN chunks c ON c.id=f.chunk_id JOIN items i ON i.id=c.item_id """
-    params: list[str] = []
-    if bucket:
-        sql += "JOIN item_buckets ib ON ib.item_id=i.id WHERE ib.bucket_name=? AND f.text MATCH ?"
-        params = [bucket, query]
-    else:
-        sql += "WHERE f.text MATCH ?"
-        params = [query]
-    return conn.execute(sql, params).fetchall()
+    return DatabaseAdapter(conn).search_chunks(query, bucket)
 
 
 def fetch_chunks_for_embedding(conn):
-    return conn.execute("SELECT id, text FROM chunks").fetchall()
+    return DatabaseAdapter(conn).fetch_chunks_for_embedding()
 
 
 def embedding_exists(conn, chunk_id: str, model: str):
-    return conn.execute("SELECT 1 FROM embeddings WHERE chunk_id=? AND model=?", (chunk_id, model)).fetchone() is not None
+    return DatabaseAdapter(conn).embedding_exists(chunk_id, model)
 
 
 def insert_embedding(conn, embedding_id: str, chunk_id: str, model: str, embedding_json: str, dimensions: int):
-    conn.execute(
-        "INSERT INTO embeddings(id, chunk_id, model, embedding_json, dimensions, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
-        (embedding_id, chunk_id, model, embedding_json, dimensions),
-    )
+    DatabaseAdapter(conn).insert_embedding(embedding_id, chunk_id, model, embedding_json, dimensions)
 
 
 def fetch_video_items(conn):
-    return conn.execute("SELECT id, path_or_url FROM items WHERE item_type='video'").fetchall()
+    return DatabaseAdapter(conn).fetch_video_items()
 
 
 def insert_frame_ocr_chunk(conn, chunk_id: str, item_id: str, text: str):
-    conn.execute(
-        "INSERT INTO chunks(id, item_id, chunk_type, text, timestamp_start, timestamp_end, metadata_json, created_at) VALUES (?, ?, 'frame_ocr', ?, 5.0, 5.0, '{}', datetime('now'))",
-        (chunk_id, item_id, text),
-    )
-    conn.execute("INSERT INTO chunk_fts(chunk_id, text) VALUES (?, ?)", (chunk_id, text))
+    DatabaseAdapter(conn).insert_frame_ocr_chunk(chunk_id, item_id, text)
 
 
 def fetch_item_by_path_or_url(conn, path_or_url: str):
-    return conn.execute("SELECT * FROM items WHERE path_or_url=?", (path_or_url,)).fetchone()
+    return DatabaseAdapter(conn).fetch_item_by_path_or_url(path_or_url)
 
 
 def fetch_item_bucket_explanations(conn, path_or_url: str):
-    return conn.execute(
-        "SELECT bucket_name, confidence, evidence_json FROM item_buckets ib JOIN items i ON i.id=ib.item_id WHERE i.path_or_url=?",
-        (path_or_url,),
-    ).fetchall()
+    return DatabaseAdapter(conn).fetch_item_bucket_explanations(path_or_url)
 
 
 def fetch_bucket_contents(conn, bucket_name: str):
-    return conn.execute(
-        "SELECT i.path_or_url FROM item_buckets ib JOIN items i ON i.id=ib.item_id WHERE ib.bucket_name=?",
-        (bucket_name,),
-    ).fetchall()
+    return DatabaseAdapter(conn).fetch_bucket_contents(bucket_name)
 
 
 def fetch_bucket_stats(conn):
-    return conn.execute(
-        "SELECT bucket_name, COUNT(*) AS c FROM item_buckets GROUP BY bucket_name ORDER BY c DESC"
-    ).fetchall()
+    return DatabaseAdapter(conn).fetch_bucket_stats()
