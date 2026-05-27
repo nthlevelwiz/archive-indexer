@@ -1,0 +1,223 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "CLI: init-db",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "archive_indexer",
+      "args": [
+        "--data-dir",
+        "${workspaceFolder}/data",
+        "--config-dir",
+        "${workspaceFolder}/config",
+        "init-db"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: ingest",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "archive_indexer",
+      "args": [
+        "--data-dir",
+        "${workspaceFolder}/data",
+        "--config-dir",
+        "${workspaceFolder}/config",
+        "ingest"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: ingest-bookmarks",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "archive_indexer",
+      "args": [
+        "--data-dir",
+        "${workspaceFolder}/data",
+        "--config-dir",
+        "${workspaceFolder}/config",
+        "ingest-bookmarks",
+        "${workspaceFolder}/sample_data/bookmarks.html"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: assign-buckets",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "archive_indexer",
+      "args": [
+        "--data-dir",
+        "${workspaceFolder}/data",
+        "--config-dir",
+        "${workspaceFolder}/config",
+        "assign-buckets"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: search",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "archive_indexer",
+      "args": [
+        "--data-dir",
+        "${workspaceFolder}/data",
+        "--config-dir",
+        "${workspaceFolder}/config",
+        "search",
+        "example query"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: embed",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "archive_indexer",
+      "args": [
+        "--data-dir",
+        "${workspaceFolder}/data",
+        "--config-dir",
+        "${workspaceFolder}/config",
+        "embed"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: ocr-videos",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "archive_indexer",
+      "args": [
+        "--data-dir",
+        "${workspaceFolder}/data",
+        "--config-dir",
+        "${workspaceFolder}/config",
+        "ocr-videos"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: show-item",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "archive_indexer",
+      "args": [
+        "--data-dir",
+        "${workspaceFolder}/data",
+        "--config-dir",
+        "${workspaceFolder}/config",
+        "show-item",
+        "https://example.com"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: explain-buckets",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "archive_indexer",
+      "args": [
+        "--data-dir",
+        "${workspaceFolder}/data",
+        "--config-dir",
+        "${workspaceFolder}/config",
+        "explain-buckets",
+        "https://example.com"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: list-bucket-contents",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "archive_indexer",
+      "args": [
+        "--data-dir",
+        "${workspaceFolder}/data",
+        "--config-dir",
+        "${workspaceFolder}/config",
+        "list-bucket-contents",
+        "General"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: list-bucket (alias)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "archive_indexer",
+      "args": [
+        "--data-dir",
+        "${workspaceFolder}/data",
+        "--config-dir",
+        "${workspaceFolder}/config",
+        "list-bucket",
+        "General"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "CLI: bucket-stats",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "archive_indexer",
+      "args": [
+        "--data-dir",
+        "${workspaceFolder}/data",
+        "--config-dir",
+        "${workspaceFolder}/config",
+        "bucket-stats"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    }
+  ],
+  "compounds": [
+    {
+      "name": "CLI: all command paths",
+      "configurations": [
+        "CLI: init-db",
+        "CLI: ingest",
+        "CLI: ingest-bookmarks",
+        "CLI: assign-buckets",
+        "CLI: search",
+        "CLI: embed",
+        "CLI: ocr-videos",
+        "CLI: show-item",
+        "CLI: explain-buckets",
+        "CLI: list-bucket-contents",
+        "CLI: list-bucket (alias)",
+        "CLI: bucket-stats"
+      ],
+      "stopAll": true
+    }
+  ]
+}
