@@ -1,0 +1,35 @@
+[importlinter]
+root_package = archive_indexer
+
+[contract:cli_only_uses_public_core]
+name = CLI should only depend on config/db (public core)
+type = forbidden
+source_modules =
+    archive_indexer.cli
+forbidden_modules =
+    archive_indexer.__main__
+
+[contract:main_only_calls_cli]
+name = __main__ should only depend on cli
+type = layers
+layers =
+    archive_indexer.__main__
+    archive_indexer.cli
+
+[contract:config_must_be_leaf]
+name = config should be a leaf module
+type = forbidden
+source_modules =
+    archive_indexer.config
+forbidden_modules =
+    archive_indexer.cli
+    archive_indexer.db
+
+[contract:db_is_infra_not_cli]
+name = db should not import cli
+type = forbidden
+source_modules =
+    archive_indexer.db
+forbidden_modules =
+    archive_indexer.cli
+    archive_indexer.__main__

@@ -1138,3 +1138,22 @@ The generated data is structured as a model-agnostic IR benchmark with:
 - evaluation config
 
 This allows testing exact match, filename search, metadata filters, BM25/keyword search, vector search, hybrid search, reranking, OCR search, caption search, and RAG without locking into a specific model, embedding provider, or database.
+
+
+## Import dependency flow checks (import-linter)
+
+Use `import-linter` to keep module boundaries clean:
+
+```bash
+pip install import-linter
+lint-imports
+```
+
+Suggested dependency flow for this repo:
+
+- `archive_indexer.__main__` → `archive_indexer.cli`
+- `archive_indexer.cli` → `archive_indexer.db`, `archive_indexer.config`
+- `archive_indexer.db` should not depend on CLI entry modules
+- `archive_indexer.config` should stay leaf/simple and avoid importing runtime modules
+
+A starter `.importlinter` config is included at repo root.
