@@ -1,4 +1,5 @@
 PyYAML>=6.0
+pydeps>=1.12
 
 [dev]
 pytest>=8.0

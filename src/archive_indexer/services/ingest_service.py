@@ -50,10 +50,10 @@ def ingest_folders(db_path: Path, config_dir: Path, source_label: str | None = N
     inserted = 0
     try:
         for source in load_sources(config_dir):
-            if source.get("type") != "folder":
-                continue
-            if source_label and source.get("label") != source_label:
-                continue
+            # if source.get("type") != "folder":
+            #     # continue
+            # if source_label and source.get("label") != source_label:
+            #     continue
             root = Path(source["path"]).expanduser().resolve()
             source_id = source.get("id") or source.get("label") or str(root)
             upsert_source(conn, source_id, str(root), source.get("label"), json.dumps(source))
@@ -74,6 +74,7 @@ def ingest_folders(db_path: Path, config_dir: Path, source_label: str | None = N
                     create_basic_chunks(conn, item_id, p)
         conn.commit()
         return inserted
+    #todo: catch errors and throw them. we just want to use the try catch finally pattern to ensure the connection gets closed. 
     finally:
         conn.close()
 

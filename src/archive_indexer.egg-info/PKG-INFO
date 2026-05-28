@@ -4,6 +4,7 @@ Version: 0.1.0
 Summary: Local-first archive indexing MVP
 Requires-Python: >=3.10
 Requires-Dist: PyYAML>=6.0
+Requires-Dist: pydeps>=1.12
 Provides-Extra: dev
 Requires-Dist: pytest>=8.0; extra == "dev"
 Requires-Dist: pytest-cov>=5.0; extra == "dev"

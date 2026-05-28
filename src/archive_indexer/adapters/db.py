@@ -105,7 +105,8 @@ def connect_db(db_path: str | Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
-    return conn
+    # return conn
+    # we should be using the singleton class instance
 
 
 def init_db(db_path: str | Path) -> None:
@@ -119,8 +120,8 @@ def init_db(db_path: str | Path) -> None:
 
 class DatabaseAdapter:
     def __init__(self, conn: sqlite3.Connection):
-        self.conn = conn
-
+        if not hasattr(self, "conn"): self.conn = conn
+    
     def upsert_source(self, source_id, root_path, label, config_json):
         self.conn.execute("INSERT OR REPLACE INTO sources(id, source_type, root_path_or_file, label, config_json, created_at) VALUES (?, 'folder', ?, ?, ?, ?)", (source_id, root_path, label, config_json, now_iso()))
 

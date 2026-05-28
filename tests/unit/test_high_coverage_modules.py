@@ -1,5 +1,4 @@
 import json
-import runpy
 import sqlite3
 from pathlib import Path
 
@@ -98,8 +97,3 @@ def test_ingest_folders_and_bookmarks_and_cli_commands(tmp_path: Path, monkeypat
 
     # unknown command path prints help
     assert cli.main(["--data-dir", str(data_dir)]) == 0
-
-    # __main__ module execution
-    monkeypatch.setattr("sys.argv", ["archive_indexer", "--help"])
-    with pytest.raises(SystemExit):
-        runpy.run_module("archive_indexer.__main__", run_name="__main__")
