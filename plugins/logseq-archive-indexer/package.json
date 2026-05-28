@@ -1,10 +1,17 @@
 {
   "name": "logseq-archive-indexer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Read-only Logseq frontend for Archive Indexer snapshots.",
   "main": "index.html",
+  "id": "archive-indexer-frontend",
+  "title": "Archive Indexer",
+  "icon": "./icon.svg",
+  "effect": true,
   "license": "MIT",
   "private": true,
+  "dependencies": {
+    "@logseq/libs": "^0.0.17"
+  },
   "logseq": {
     "id": "archive-indexer-frontend",
     "title": "Archive Indexer",

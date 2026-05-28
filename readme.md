@@ -1307,4 +1307,13 @@ The snapshot omits raw embedding vectors and includes only embedding counts/dime
 
 ### Load the plugin
 
-No build step is required. Load `plugins/logseq-archive-indexer` in Logseq's developer plugin loader, then use the Archive toolbar button to pick the exported JSON file.
+Install the Logseq plugin SDK dependency first:
+
+```bash
+cd plugins/logseq-archive-indexer
+npm install
+```
+
+Then enable Logseq developer mode, choose **Load unpacked plugin**, and select `plugins/logseq-archive-indexer` directly. Do not select the repository root.
+
+If Logseq reports that the plugin content took too long to load, check that `plugins/logseq-archive-indexer/node_modules/@logseq/libs/dist/lsplugin.user.js` exists, then reload the plugin.

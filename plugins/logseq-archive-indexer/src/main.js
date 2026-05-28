@@ -218,6 +218,11 @@ function bindEvents() {
     });
 }
 function main() {
+    if (!window.logseq) {
+        state.message = "Logseq SDK did not load. Run `npm install` in plugins/logseq-archive-indexer, then reload the unpacked plugin directory.";
+        render();
+        return;
+    }
     logseq.setMainUIInlineStyle({
         background: "transparent",
         borderRadius: "12px",
@@ -232,7 +237,7 @@ function main() {
     });
     logseq.App.registerUIItem("toolbar", {
         key: "archive-indexer",
-        template: "<a data-on-click=\"toggleArchiveIndexer\" class=\"button\">Archive</a>",
+        template: "<a data-on-click=\"toggleArchiveIndexer\" class=\"button\" title=\"Open Archive Indexer\">Archive</a>",
     });
     logseq.provideModel({
         toggleArchiveIndexer() {
@@ -241,4 +246,13 @@ function main() {
     });
     render();
 }
-logseq.ready(main).catch(console.error);
+if (window.logseq?.ready) {
+    logseq.ready(main).catch((error) => {
+        console.error(error);
+        state.message = error instanceof Error ? error.message : "Logseq plugin startup failed.";
+        render();
+    });
+}
+else {
+    main();
+}

@@ -10,7 +10,16 @@ Archive Indexer SQLite → export-logseq-snapshot JSON → Logseq plugin → opt
 
 ## Install in Logseq
 
-No build step is required. Load this plugin directory in Logseq's developer plugin loader.
+Install the Logseq plugin SDK dependency before loading the unpacked plugin:
+
+```bash
+cd plugins/logseq-archive-indexer
+npm install
+```
+
+Then open Logseq, enable developer mode, choose **Load unpacked plugin**, and select this `plugins/logseq-archive-indexer` directory. Loading the repository root will not work.
+
+If Logseq says the plugin content took too long to load, confirm that `plugins/logseq-archive-indexer/node_modules/@logseq/libs/dist/lsplugin.user.js` exists, then reload the plugin.
 
 ## Use
 
@@ -20,7 +29,7 @@ No build step is required. Load this plugin directory in Logseq's developer plug
    python -m archive_indexer export-logseq-snapshot archive-indexer-logseq.json
    ```
 
-2. Open the Archive Indexer toolbar button in Logseq.
+2. Click the **Archive** toolbar button in Logseq.
 3. Choose the exported JSON file.
 4. Browse and filter indexed items, chunks, buckets, sources, and embedding stats.
 5. Use **Import into Logseq** on specific items when you want a Logseq page copy.
