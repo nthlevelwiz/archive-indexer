@@ -1,0 +1,13 @@
+{
+  "name": "logseq-archive-indexer",
+  "version": "0.1.0",
+  "description": "Read-only Logseq frontend for Archive Indexer snapshots.",
+  "main": "index.html",
+  "license": "MIT",
+  "private": true,
+  "logseq": {
+    "id": "archive-indexer-frontend",
+    "title": "Archive Indexer",
+    "icon": "./icon.svg"
+  }
+}

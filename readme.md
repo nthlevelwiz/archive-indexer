@@ -1283,3 +1283,28 @@ Notes:
 - Coverage is useful for finding untested areas, but coverage percentages alone do not prove correctness.
 - Mutation testing is slower than normal tests, so run it before merges or for high-value logic rather than every local edit.
 - On Windows, `mutmut` may work best inside WSL because it depends on fork-style process behavior.
+---
+
+## Logseq Plugin Frontend
+
+Archive Indexer includes a Logseq plugin scaffold at `plugins/logseq-archive-indexer` for browsing the existing Archive Indexer SQLite data from inside Logseq.
+
+The integration is intentionally unidirectional:
+
+```text
+Archive Indexer SQLite → snapshot JSON → Logseq plugin → optional Logseq pages
+```
+
+The plugin does **not** write back to the Archive Indexer database. It reads a JSON snapshot exported from the existing tables (`sources`, `items`, `chunks`, `item_buckets`, bucket definitions/statistics, and embedding statistics) and lets you browse or selectively import item pages into Logseq.
+
+### Export a snapshot
+
+```bash
+python -m archive_indexer export-logseq-snapshot archive-indexer-logseq.json
+```
+
+The snapshot omits raw embedding vectors and includes only embedding counts/dimensions so the Logseq frontend stays focused on browsable metadata and text.
+
+### Load the plugin
+
+No build step is required. Load `plugins/logseq-archive-indexer` in Logseq's developer plugin loader, then use the Archive toolbar button to pick the exported JSON file.

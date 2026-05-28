@@ -12,6 +12,7 @@ from archive_indexer.adapters.embedding import cosine_similarity
 from archive_indexer.adapters.ocr import extract_frame_ocr_text as ocr_adapter_extract_frame_ocr_text
 from archive_indexer.services.bucket_service import assign_buckets as bucket_service_assign_buckets
 from archive_indexer.services.ingest_service import ingest_bookmarks as ingest_service_ingest_bookmarks, ingest_folders as ingest_service_ingest_folders
+from archive_indexer.services.logseq_snapshot_service import write_logseq_snapshot
 
 
 STR_INIT_DB_COMMAND_ARG = "init-db"
@@ -27,6 +28,7 @@ explain_buckets_command_arg = "explain-buckets"
 list_bucket_command_arg = "list-bucket"
 list_bucket_contents_command_arg = "list-bucket-contents"
 bucket_stats_command_arg = "bucket-stats"
+export_logseq_snapshot_command_arg = "export-logseq-snapshot"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -66,6 +68,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_list_alias.add_argument("bucket_name")
 
     subparsers.add_parser(bucket_stats_command_arg)
+
+    p_logseq_snapshot = subparsers.add_parser(
+        export_logseq_snapshot_command_arg,
+        help="Export a read-only JSON snapshot for the Logseq Archive Indexer plugin",
+    )
+    p_logseq_snapshot.add_argument("output_path")
     return parser
 
 
@@ -91,6 +99,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == assign_buckets_command_arg:
         n = bucket_service_assign_buckets(config_dir=config_dir)
         print(f"assigned {n} bucket rows")
+        return 0
+    if args.command == export_logseq_snapshot_command_arg:
+        output_path = write_logseq_snapshot(Path(args.output_path))
+        print(f"exported Logseq snapshot to {output_path}")
         return 0
 
 
