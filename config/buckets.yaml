@@ -1,0 +1,28 @@
+buckets:
+  - name: mental_health
+    description: Content related to mental health.
+    type: topic
+  - name: physical_health
+    description: Content related to physical health.
+    type: topic
+  - name: memes
+    description: Meme and humor content.
+    type: topic
+  - name: music
+    description: Music-related content.
+    type: topic
+  - name: gaming
+    description: Video gaming content.
+    type: topic
+  - name: tabletop_gaming
+    description: Tabletop and board gaming content.
+    type: topic
+  - name: coding
+    description: Programming and software development content.
+    type: topic
+  - name: job_search
+    description: Job search and career content.
+    type: topic
+  - name: philosophy
+    description: Philosophy-related content.
+    type: topic
