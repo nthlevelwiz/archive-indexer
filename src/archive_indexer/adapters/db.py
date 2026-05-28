@@ -100,16 +100,28 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def connect_db(db_path: str | Path) -> sqlite3.Connection:
-    path = Path(db_path)
+DATABASE_FILENAME = "archive_index.sqlite"
+_default_data_dir = Path("data")
+
+
+def set_data_dir(data_dir: str | Path) -> None:
+    global _default_data_dir
+    _default_data_dir = Path(data_dir)
+
+
+def get_db_path(data_dir: str | Path | None = None) -> Path:
+    return Path(data_dir) / DATABASE_FILENAME if data_dir is not None else _default_data_dir / DATABASE_FILENAME
+
+
+def connect_db(db_path: str | Path | None = None) -> sqlite3.Connection:
+    path = Path(db_path) if db_path is not None else get_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
-    # return conn
-    # we should be using the singleton class instance
+    return conn
 
 
-def init_db(db_path: str | Path) -> None:
+def init_db(db_path: str | Path | None = None) -> None:
     conn = connect_db(db_path)
     try:
         conn.executescript(SCHEMA_SQL)
@@ -119,8 +131,16 @@ def init_db(db_path: str | Path) -> None:
 
 
 class DatabaseAdapter:
-    def __init__(self, conn: sqlite3.Connection):
-        if not hasattr(self, "conn"): self.conn = conn
+    def __init__(self, conn: sqlite3.Connection | None = None):
+        self.conn = conn or connect_db()
+        self._owns_connection = conn is None
+
+    def close(self) -> None:
+        if self._owns_connection:
+            self.conn.close()
+
+    def commit(self) -> None:
+        self.conn.commit()
     
     def upsert_source(self, source_id, root_path, label, config_json):
         self.conn.execute("INSERT OR REPLACE INTO sources(id, source_type, root_path_or_file, label, config_json, created_at) VALUES (?, 'folder', ?, ?, ?, ?)", (source_id, root_path, label, config_json, now_iso()))

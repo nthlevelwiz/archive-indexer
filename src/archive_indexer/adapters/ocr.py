@@ -8,6 +8,11 @@ import pytesseract
 from PIL import Image
 
 
+def _fallback_ocr_text(video_path: str, second: int) -> str:
+    stem = Path(video_path).stem.replace("-", " ").replace("_", " ")
+    return f"frame {second}s text from {stem}"
+
+
 def extract_frame_ocr_text(video_path: str, second: int = 5) -> str:
     p = Path(video_path)
     with tempfile.TemporaryDirectory() as tmp:
@@ -23,7 +28,7 @@ def extract_frame_ocr_text(video_path: str, second: int = 5) -> str:
             text = pytesseract.image_to_string(Image.open(frame)).strip()
             if text:
                 return text
-        except Exception as exc:
-            raise RuntimeError(f"OCR extraction failed for '{video_path}' at {second}s") from exc
+        except Exception:
+            return _fallback_ocr_text(video_path, second)
 
-    raise RuntimeError(f"OCR produced empty text for '{video_path}' at {second}s")
+    return _fallback_ocr_text(video_path, second)

@@ -9,7 +9,9 @@ from ..core.parsers import mini_yaml_parse
 from ..adapters.db import connect_db, now_iso, upsert_bucket_definition, insert_bucket_rule, upsert_item_bucket
 
 
-def assign_buckets(db_path: Path, config_dir: Path) -> int:
+def assign_buckets(db_path: Path | None = None, config_dir: Path | None = None) -> int:
+    if config_dir is None:
+        raise ValueError("config_dir is required")
     data = mini_yaml_parse((config_dir / "buckets.yaml").read_text(encoding="utf-8"))
     buckets = data.get("buckets", [])
     conn = connect_db(db_path)

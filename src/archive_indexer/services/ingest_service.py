@@ -45,15 +45,17 @@ def load_sources(config_dir: Path) -> list[dict]:
     return sources
 
 
-def ingest_folders(db_path: Path, config_dir: Path, source_label: str | None = None) -> int:
+def ingest_folders(db_path: Path | None = None, config_dir: Path | None = None, source_label: str | None = None) -> int:
+    if config_dir is None:
+        raise ValueError("config_dir is required")
     conn = connect_db(db_path)
     inserted = 0
     try:
         for source in load_sources(config_dir):
-            # if source.get("type") != "folder":
-            #     # continue
-            # if source_label and source.get("label") != source_label:
-            #     continue
+            if source.get("type") != "folder":
+                continue
+            if source_label and source.get("label") != source_label:
+                continue
             root = Path(source["path"]).expanduser().resolve()
             source_id = source.get("id") or source.get("label") or str(root)
             upsert_source(conn, source_id, str(root), source.get("label"), json.dumps(source))
@@ -93,7 +95,9 @@ def create_basic_chunks(conn, item_id: str, path: Path) -> None:
         upsert_chunk(conn, (chunk_id, item_id, chunk_type, text, "{}", now_iso()))
         insert_fts(conn, chunk_id, text)
 
-def ingest_bookmarks(db_path: Path, bookmark_file: Path) -> int:
+def ingest_bookmarks(db_path: Path | None = None, bookmark_file: Path | None = None) -> int:
+    if bookmark_file is None:
+        raise ValueError("bookmark_file is required")
     conn = connect_db(db_path)
     parser = BookmarkParser()
     parser.feed(bookmark_file.read_text(encoding="utf-8", errors="ignore"))
