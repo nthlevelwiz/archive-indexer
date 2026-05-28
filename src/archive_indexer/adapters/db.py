@@ -172,6 +172,18 @@ class DatabaseAdapter:
     def fetch_chunks_for_embedding(self):
         return self.conn.execute("SELECT id, text FROM chunks").fetchall()
 
+    def fetch_semantic_search_rows(self, model: str):
+        return self.conn.execute(
+            """
+            SELECT i.path_or_url, c.text, e.embedding_json
+            FROM embeddings e
+            JOIN chunks c ON c.id=e.chunk_id
+            JOIN items i ON i.id=c.item_id
+            WHERE e.model=?
+            """,
+            (model,),
+        ).fetchall()
+
     def embedding_exists(self, chunk_id: str, model: str):
         return self.conn.execute("SELECT 1 FROM embeddings WHERE chunk_id=? AND model=?", (chunk_id, model)).fetchone() is not None
 
@@ -258,6 +270,10 @@ def search_chunks(conn, query: str, bucket: str | None = None):
 
 def fetch_chunks_for_embedding(conn):
     return DatabaseAdapter(conn).fetch_chunks_for_embedding()
+
+
+def fetch_semantic_search_rows(conn, model: str):
+    return DatabaseAdapter(conn).fetch_semantic_search_rows(model)
 
 
 def embedding_exists(conn, chunk_id: str, model: str):

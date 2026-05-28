@@ -12,6 +12,7 @@ from archive_indexer.adapters.db import (
     init_db,
 )
 from archive_indexer.adapters.embedding import embed_text as embedding_adapter_embed_text
+from archive_indexer.adapters.embedding import cosine_similarity
 from archive_indexer.adapters.ocr import extract_frame_ocr_text as ocr_adapter_extract_frame_ocr_text
 from archive_indexer.services.bucket_service import assign_buckets as bucket_service_assign_buckets
 from archive_indexer.services.ingest_service import ingest_bookmarks as ingest_service_ingest_bookmarks, ingest_folders as ingest_service_ingest_folders
@@ -101,12 +102,27 @@ def main(argv: list[str] | None = None) -> int:
     db_adapter = DatabaseAdapter(conn)
     try:
         if args.command == search_command_arg:
-            for r in db_adapter.search_chunks(args.query, args.bucket):
-                print(f"{r['path_or_url']}\n{r['text'][:120]}")
+            if not args.semantic:
+                for r in db_adapter.search_chunks(args.query, args.bucket):
+                    print(f"{r['path_or_url']}\n{r['text'][:120]}")
+                return 0
+
+            qvec = embedding_adapter_embed_text(args.query, model="nomic-embed-text")
+            rows = db_adapter.fetch_semantic_search_rows("nomic-embed-text")
+            scored: list[tuple[float, str, str]] = []
+            for r in rows:
+                emb = json.loads(r["embedding_json"])
+                if not isinstance(emb, list):
+                    continue
+                score = cosine_similarity(qvec, [float(x) for x in emb])
+                scored.append((score, r["path_or_url"], r["text"]))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            for score, path_or_url, text in scored[:5]:
+                print(f"{score:.4f}\t{path_or_url}\n{text[:120]}")
             return 0
 
         if args.command == embed_command_arg:
-            model = "local-hash-v1"
+            model = "nomic-embed-text"
             rows = db_adapter.fetch_chunks_for_embedding()
             for r in rows:
                 row_id = r["id"]
