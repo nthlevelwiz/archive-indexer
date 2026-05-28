@@ -597,6 +597,62 @@ ollama:
   embedding_model: nomic-embed-text
 ```
 
+#### Ollama setup with Vulkan GPU acceleration
+
+Use these steps when the machine needs Ollama to run through the Vulkan backend instead of CUDA/ROCm/CPU. This is useful for many AMD, Intel, and other GPUs that expose Vulkan but are not covered by the native Ollama GPU backends.
+
+1. **Install Ollama** from the official installer for your OS, then confirm the CLI is available:
+
+   ```bash
+   ollama --version
+   ```
+
+2. **Install a working Vulkan driver/runtime** for the GPU. On Linux, also install `vulkaninfo`/`vulkan-tools` and verify that the GPU is visible:
+
+   ```bash
+   vulkaninfo --summary
+   ```
+
+3. **Start the Ollama server with Vulkan enabled.** For an interactive shell:
+
+   ```bash
+   OLLAMA_VULKAN=1 ollama serve
+   ```
+
+   For a systemd service, add the environment variable to the Ollama service override, then restart Ollama:
+
+   ```ini
+   [Service]
+   Environment="OLLAMA_VULKAN=1"
+   ```
+
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl restart ollama
+   ```
+
+4. **Pull the models used by this project.** `nomic-embed-text` is the default embedding model used by `python -m archive_indexer embed`; `llama3.2:1b` is used by the lightweight local LLM embedding helper.
+
+   ```bash
+   ollama pull nomic-embed-text
+   ollama pull llama3.2:1b
+   ```
+
+5. **Smoke-test Ollama before running the indexer.**
+
+   ```bash
+   ollama run llama3.2:1b "Say ok"
+   ```
+
+6. **Generate embeddings and run semantic search.**
+
+   ```bash
+   python -m archive_indexer embed
+   python -m archive_indexer search "local ai vector search" --semantic
+   ```
+
+If Vulkan is misconfigured, Ollama may fail to load a model or fall back to CPU. Check the Ollama server logs and confirm `OLLAMA_VULKAN=1` is present in the server environment.
+
 Alternative embedding models to try later:
 
 ```text
