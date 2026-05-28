@@ -76,7 +76,8 @@ def ingest_folders(db_path: Path | None = None, config_dir: Path | None = None, 
                     create_basic_chunks(conn, item_id, p)
         conn.commit()
         return inserted
-    #todo: catch errors and throw them. we just want to use the try catch finally pattern to ensure the connection gets closed. 
+    except Exception:
+        raise
     finally:
         conn.close()
 
