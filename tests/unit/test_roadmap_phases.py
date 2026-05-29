@@ -1,5 +1,6 @@
 print("running tests/unit/test_roadmap_phases.py")
 from pathlib import Path
+from archive_indexer.adapters.db import connect_db
 
 import pytest
 
