@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import sys
+from types import ModuleType
+from unittest.mock import create_autospec, patch
+
 import pytest
 
 from archive_indexer.adapters import db as db_mod
@@ -222,6 +226,246 @@ def test_neo4j_embedding_exists_true_and_false():
     empty_adapter, empty_driver = make_adapter()
     assert empty_adapter.embedding_exists("c1", "nomic") is False
     assert_last_call(empty_driver, "read", "RETURN 1 AS exists", chunk_id="c1", model="nomic")
+
+
+def _fake_neo4j_modules():
+    class Driver:
+        def session(self, *, database=None):
+            return None
+
+        def close(self):
+            return None
+
+    class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute_read(self, transaction_function, *args, **kwargs):
+            return None
+
+        def execute_write(self, transaction_function, *args, **kwargs):
+            return None
+
+    class Transaction:
+        def run(self, query, parameters=None, **kwargs):
+            return None
+
+    class GraphDatabase:
+        @staticmethod
+        def driver(uri, *, auth=None, **config):
+            return None
+
+    neo4j_module = ModuleType("neo4j")
+    neo4j_module.GraphDatabase = GraphDatabase
+    sync_module = ModuleType("neo4j._sync")
+    driver_module = ModuleType("neo4j._sync.driver")
+    driver_module.Driver = Driver
+    work_module = ModuleType("neo4j._sync.work")
+    work_module.Session = Session
+    work_module.Transaction = Transaction
+    return {
+        "neo4j": neo4j_module,
+        "neo4j._sync": sync_module,
+        "neo4j._sync.driver": driver_module,
+        "neo4j._sync.work": work_module,
+    }
+
+
+def test_execute_read_uses_injected_neo4j_package_when_dependency_is_absent():
+    with patch.dict(sys.modules, _fake_neo4j_modules()):
+        from neo4j._sync.driver import Driver
+        from neo4j._sync.work import Session, Transaction
+
+        tx = create_autospec(Transaction, instance=True, spec_set=True)
+        session = create_autospec(Session, instance=True, spec_set=True)
+        driver = create_autospec(Driver, instance=True, spec_set=True)
+        calls: dict[str, object] = {}
+
+        def run_side_effect(query, parameters=None, **kwargs):
+            if kwargs:
+                raise TypeError(f"Unexpected keyword parameters: {kwargs}")
+            calls["cypher"] = query
+            calls["params"] = parameters or {}
+            return [FakeRecord(path_or_url="/tmp/a.txt", text="hello")]
+
+        def execute_read_side_effect(func, *args, **kwargs):
+            return func(tx, *args, **kwargs)
+
+        tx.run.side_effect = run_side_effect
+        session.__enter__.return_value = session
+        session.__exit__.return_value = False
+        session.execute_read.side_effect = execute_read_side_effect
+        driver.session.return_value = session
+
+        adapter = db_mod.Neo4jDatabaseAdapter.__new__(db_mod.Neo4jDatabaseAdapter)
+        adapter.driver = driver
+        adapter.database = "neo4j"
+
+        rows = adapter._execute_read("RETURN $query AS text", query="needle")
+
+        assert rows == [{"path_or_url": "/tmp/a.txt", "text": "hello"}]
+        driver.session.assert_called_once_with(database="neo4j")
+        session.execute_read.assert_called_once_with(adapter._read_tx, "RETURN $query AS text", {"query": "needle"})
+        tx.run.assert_called_once_with("RETURN $query AS text", {"query": "needle"})
+        assert calls == {"cypher": "RETURN $query AS text", "params": {"query": "needle"}}
+
+
+def test_execute_write_uses_injected_neo4j_package_when_dependency_is_absent():
+    with patch.dict(sys.modules, _fake_neo4j_modules()):
+        from neo4j._sync.driver import Driver
+        from neo4j._sync.work import Session, Transaction
+
+        tx = create_autospec(Transaction, instance=True, spec_set=True)
+        session = create_autospec(Session, instance=True, spec_set=True)
+        driver = create_autospec(Driver, instance=True, spec_set=True)
+        calls: dict[str, object] = {}
+
+        def run_side_effect(query, parameters=None, **kwargs):
+            if kwargs:
+                raise TypeError(f"Unexpected keyword parameters: {kwargs}")
+            calls["cypher"] = query
+            calls["params"] = parameters or {}
+            return []
+
+        def execute_write_side_effect(func, *args, **kwargs):
+            return func(tx, *args, **kwargs)
+
+        tx.run.side_effect = run_side_effect
+        session.__enter__.return_value = session
+        session.__exit__.return_value = False
+        session.execute_write.side_effect = execute_write_side_effect
+        driver.session.return_value = session
+
+        adapter = db_mod.Neo4jDatabaseAdapter.__new__(db_mod.Neo4jDatabaseAdapter)
+        adapter.driver = driver
+        adapter.database = "neo4j"
+
+        adapter._execute_write("MATCH (n {id: $id}) SET n.name=$name", id="n1", name="Node")
+
+        driver.session.assert_called_once_with(database="neo4j")
+        session.execute_write.assert_called_once_with(
+            adapter._write_tx,
+            "MATCH (n {id: $id}) SET n.name=$name",
+            {"id": "n1", "name": "Node"},
+        )
+        tx.run.assert_called_once_with("MATCH (n {id: $id}) SET n.name=$name", {"id": "n1", "name": "Node"})
+        assert calls == {"cypher": "MATCH (n {id: $id}) SET n.name=$name", "params": {"id": "n1", "name": "Node"}}
+
+
+def test_constructor_uses_injected_neo4j_package_when_dependency_is_absent(monkeypatch: pytest.MonkeyPatch):
+    with patch.dict(sys.modules, _fake_neo4j_modules()):
+        import neo4j
+
+        driver = object()
+        graph_database = create_autospec(neo4j.GraphDatabase, spec_set=True)
+        graph_database.driver.return_value = driver
+
+        monkeypatch.setattr(db_mod, "GraphDatabase", graph_database)
+
+        adapter = db_mod.Neo4jDatabaseAdapter("bolt://example:7687", "neo4j", "secret", "archive")
+
+        graph_database.driver.assert_called_once_with("bolt://example:7687", auth=("neo4j", "secret"))
+        assert adapter.driver is driver
+        assert adapter.database == "archive"
+
+
+def test_execute_read_uses_autospecced_neo4j_session_and_transaction():
+    pytest.importorskip("neo4j")
+    from neo4j._sync.driver import Driver
+    from neo4j._sync.work import Session, Transaction
+
+    tx = create_autospec(Transaction, instance=True, spec_set=True)
+    session = create_autospec(Session, instance=True, spec_set=True)
+    driver = create_autospec(Driver, instance=True, spec_set=True)
+    calls: dict[str, object] = {}
+
+    def run_side_effect(query, parameters=None, **kwargs):
+        if kwargs:
+            raise TypeError(f"Unexpected keyword parameters: {kwargs}")
+        calls["cypher"] = query
+        calls["params"] = parameters or {}
+        return [FakeRecord(path_or_url="/tmp/a.txt", text="hello")]
+
+    def execute_read_side_effect(func, *args, **kwargs):
+        return func(tx, *args, **kwargs)
+
+    tx.run.side_effect = run_side_effect
+    session.__enter__.return_value = session
+    session.__exit__.return_value = False
+    session.execute_read.side_effect = execute_read_side_effect
+    driver.session.return_value = session
+
+    adapter = db_mod.Neo4jDatabaseAdapter.__new__(db_mod.Neo4jDatabaseAdapter)
+    adapter.driver = driver
+    adapter.database = "neo4j"
+
+    rows = adapter._execute_read("RETURN $query AS text", query="needle")
+
+    assert rows == [{"path_or_url": "/tmp/a.txt", "text": "hello"}]
+    driver.session.assert_called_once_with(database="neo4j")
+    session.execute_read.assert_called_once_with(adapter._read_tx, "RETURN $query AS text", {"query": "needle"})
+    tx.run.assert_called_once_with("RETURN $query AS text", {"query": "needle"})
+    assert calls == {"cypher": "RETURN $query AS text", "params": {"query": "needle"}}
+
+
+def test_execute_write_uses_autospecced_neo4j_session_and_transaction():
+    pytest.importorskip("neo4j")
+    from neo4j._sync.driver import Driver
+    from neo4j._sync.work import Session, Transaction
+
+    tx = create_autospec(Transaction, instance=True, spec_set=True)
+    session = create_autospec(Session, instance=True, spec_set=True)
+    driver = create_autospec(Driver, instance=True, spec_set=True)
+    calls: dict[str, object] = {}
+
+    def run_side_effect(query, parameters=None, **kwargs):
+        if kwargs:
+            raise TypeError(f"Unexpected keyword parameters: {kwargs}")
+        calls["cypher"] = query
+        calls["params"] = parameters or {}
+        return []
+
+    def execute_write_side_effect(func, *args, **kwargs):
+        return func(tx, *args, **kwargs)
+
+    tx.run.side_effect = run_side_effect
+    session.__enter__.return_value = session
+    session.__exit__.return_value = False
+    session.execute_write.side_effect = execute_write_side_effect
+    driver.session.return_value = session
+
+    adapter = db_mod.Neo4jDatabaseAdapter.__new__(db_mod.Neo4jDatabaseAdapter)
+    adapter.driver = driver
+    adapter.database = "neo4j"
+
+    adapter._execute_write("MATCH (n {id: $id}) SET n.name=$name", id="n1", name="Node")
+
+    driver.session.assert_called_once_with(database="neo4j")
+    session.execute_write.assert_called_once_with(
+        adapter._write_tx,
+        "MATCH (n {id: $id}) SET n.name=$name",
+        {"id": "n1", "name": "Node"},
+    )
+    tx.run.assert_called_once_with("MATCH (n {id: $id}) SET n.name=$name", {"id": "n1", "name": "Node"})
+    assert calls == {"cypher": "MATCH (n {id: $id}) SET n.name=$name", "params": {"id": "n1", "name": "Node"}}
+
+
+def test_neo4j_constructor_uses_autospecced_driver_factory(monkeypatch: pytest.MonkeyPatch):
+    neo4j = pytest.importorskip("neo4j")
+    driver = object()
+    graph_database = create_autospec(neo4j.GraphDatabase, spec_set=True)
+    graph_database.driver.return_value = driver
+
+    monkeypatch.setattr(db_mod, "GraphDatabase", graph_database)
+
+    adapter = db_mod.Neo4jDatabaseAdapter("bolt://example:7687", "neo4j", "secret", "archive")
+
+    graph_database.driver.assert_called_once_with("bolt://example:7687", auth=("neo4j", "secret"))
+    assert adapter.driver is driver
+    assert adapter.database == "archive"
 
 
 def test_neo4j_constructor_uses_driver_factory(monkeypatch: pytest.MonkeyPatch):

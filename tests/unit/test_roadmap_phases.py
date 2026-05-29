@@ -1,19 +1,23 @@
 print("running tests/unit/test_roadmap_phases.py")
-import os
-import subprocess
 from pathlib import Path
 from archive_indexer.adapters.db import connect_db
 
-ROOT = Path(__file__).resolve().parents[2]
-ENV = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
+import pytest
+
+from archive_indexer.adapters.embedding import embed_text
+from archive_indexer.adapters.ocr import extract_frame_ocr_text
+from archive_indexer.app import cli
+from archive_indexer.services import bucket_service, ingest_service
+from mock_db import MockGraphAdapter
 
 
-def run(cmd, cwd):
-    print(f"executing command: {' '.join(cmd)}")
-    return subprocess.run(cmd, cwd=cwd, env=ENV, check=True, capture_output=True, text=True)
+def test_roadmap_phases_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
+    mock_db = MockGraphAdapter()
+    monkeypatch.setattr(cli, "init_db", mock_db.init_schema)
+    monkeypatch.setattr(cli, "DatabaseAdapter", lambda: mock_db)
+    monkeypatch.setattr(ingest_service, "connect_db", lambda db_path=None: mock_db)
+    monkeypatch.setattr(bucket_service, "connect_db", lambda db_path=None: mock_db)
 
-
-def test_roadmap_phases_end_to_end(tmp_path: Path):
     (tmp_path / "config").mkdir(); (tmp_path / "data").mkdir(); (tmp_path / "archive").mkdir()
     media = tmp_path / "archive" / "videos"
     media.mkdir(parents=True)
@@ -28,22 +32,18 @@ def test_roadmap_phases_end_to_end(tmp_path: Path):
     bookmarks = tmp_path / "bookmarks.html"
     bookmarks.write_text('<DL><DT><H3>Tech</H3><DL><DT><A HREF="https://example.com/electric">Electrical</A></DL></DL>')
 
-    run(["python", "-m", "archive_indexer", "--data-dir", "data", "--config-dir", "config", "init-db"], tmp_path)
-    run(["python", "-m", "archive_indexer", "--data-dir", "data", "--config-dir", "config", "ingest"], tmp_path)
-    run(["python", "-m", "archive_indexer", "--data-dir", "data", "ingest-bookmarks", str(bookmarks)], tmp_path)
-    run(["python", "-m", "archive_indexer", "--data-dir", "data", "--config-dir", "config", "assign-buckets"], tmp_path)
-    run(["python", "-m", "archive_indexer", "--data-dir", "data", "embed"], tmp_path)
-    run(["python", "-m", "archive_indexer", "--data-dir", "data", "ocr-videos"], tmp_path)
-    result = run(["python", "-m", "archive_indexer", "--data-dir", "data", "search", "electric"], tmp_path)
-    assert "electric" in result.stdout.lower()
+    assert cli.main(["--data-dir", str(tmp_path / "data"), "--config-dir", str(tmp_path / "config"), "init-db"]) == 0
+    assert cli.main(["--data-dir", str(tmp_path / "data"), "--config-dir", str(tmp_path / "config"), "ingest"]) == 0
+    assert cli.main(["--data-dir", str(tmp_path / "data"), "ingest-bookmarks", str(bookmarks)]) == 0
+    assert cli.main(["--data-dir", str(tmp_path / "data"), "--config-dir", str(tmp_path / "config"), "assign-buckets"]) == 0
+    assert cli.main(["--data-dir", str(tmp_path / "data"), "embed"]) == 0
+    assert cli.main(["--data-dir", str(tmp_path / "data"), "ocr-videos"]) == 0
+    assert cli.main(["--data-dir", str(tmp_path / "data"), "search", "electric"]) == 0
+    result = capsys.readouterr()
+    assert "electric" in result.out.lower()
 
-    db = tmp_path / "data" / "archive_graph.json"
-    conn = connect_db(db)
-    try:
-        assert conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] >= 4
-        assert conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0] >= 4
-        assert conn.execute("SELECT COUNT(*) FROM item_buckets").fetchone()[0] >= 1
-        assert conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0] >= 1
-        assert conn.execute("SELECT COUNT(*) FROM chunks WHERE chunk_type='frame_ocr'").fetchone()[0] >= 1
-    finally:
-        conn.close()
+    assert mock_db.execute("SELECT COUNT(*) FROM items").fetchone()[0] >= 4
+    assert mock_db.execute("SELECT COUNT(*) FROM chunks").fetchone()[0] >= 4
+    assert mock_db.execute("SELECT COUNT(*) FROM item_buckets").fetchone()[0] >= 1
+    assert mock_db.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0] >= 1
+    assert mock_db.execute("SELECT COUNT(*) FROM chunks WHERE chunk_type='frame_ocr'").fetchone()[0] >= 1

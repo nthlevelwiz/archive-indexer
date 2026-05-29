@@ -31,7 +31,7 @@ bucket_stats_command_arg = "bucket-stats"
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="archive_indexer", description="Archive Indexer CLI")
-    parser.add_argument("--data-dir", default="data", help="Directory for local graph fallback storage")
+    parser.add_argument("--data-dir", default="data", help="Deprecated; Neo4j is configured with --neo4j-* or NEO4J_* variables")
     parser.add_argument("--neo4j-uri", default=None, help="Neo4j URI, for example bolt://localhost:7687")
     parser.add_argument("--neo4j-user", default=None, help="Neo4j username")
     parser.add_argument("--neo4j-password", default=None, help="Neo4j password")

@@ -76,7 +76,7 @@ This project does **not** try to fully understand every file. It creates useful 
 * Keep bucket assignment transparent and debuggable.
 * Avoid Whisper or audio transcription for the MVP.
 * Extract video text by periodically sampling frames and running OCR.
-* Store the archive graph in Neo4j (with a file-backed graph fallback for tests and offline local development).
+* Store the archive graph in Neo4j; missing Neo4j configuration fails loudly instead of using a local database fallback.
 * Make it easy to add, remove, or revise buckets over time.
 
 ---
@@ -507,7 +507,7 @@ export NEO4J_PASSWORD=your-password
 python -m archive_indexer init-db
 ```
 
-For test and offline CLI workflows where `NEO4J_URI` is not set, the adapter uses a file-backed graph store under `--data-dir` so commands can still run without a server.
+If `NEO4J_URI` is not set, database commands fail loudly. Tests mock the database adapter rather than using a local file-backed database.
 
 MVP requirement:
 
@@ -701,7 +701,6 @@ archive-indexer/
     buckets.yaml
     settings.yaml
   data/
-    archive_graph.json  # file-backed graph fallback when NEO4J_URI is unset
     frame_cache/
   src/
     archive_indexer/
@@ -770,13 +769,7 @@ Definition of done:
 python -m archive_indexer init-db
 ```
 
-creates:
-
-```text
-data/archive_graph.json
-```
-
-with the file-backed fallback graph when `NEO4J_URI` is unset, or initializes constraints/indexes in Neo4j when it is set.
+initializes constraints and indexes in the configured Neo4j database. If `NEO4J_URI` is unset, the command exits with an error instead of creating a local fallback database.
 
 ---
 

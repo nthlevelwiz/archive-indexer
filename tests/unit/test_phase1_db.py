@@ -11,39 +11,23 @@ ROOT = Path(__file__).resolve().parents[2]
 ENV = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
 
 
-def test_init_db_creates_database_and_schema(tmp_path: Path):
-    data_dir = tmp_path / "data"
-    print("executing command")
+def test_init_db_fails_loudly_without_neo4j_config(tmp_path: Path):
+    env = {k: v for k, v in ENV.items() if not k.startswith("NEO4J_")}
     result = subprocess.run(
-        ["python", "-m", "archive_indexer", "--data-dir", str(data_dir), "init-db"],
-        check=True,
+        ["python", "-m", "archive_indexer", "--data-dir", str(tmp_path / "data"), "init-db"],
         capture_output=True,
         text=True,
-        env=ENV,
+        env=env,
     )
 
-    assert "Using fallback file-backed graph database" in result.stderr
-    assert str(data_dir / "archive_graph.json") in result.stderr
-
-    db_path = data_dir / "archive_graph.json"
-    assert db_path.exists()
-    assert db_path.read_text(encoding="utf-8")
+    assert result.returncode != 0
+    assert "NEO4J_URI is required" in result.stderr
+    assert not (tmp_path / "data" / "archive_graph.json").exists()
 
 
-def test_init_db_ignores_legacy_sqlite_file_in_data_dir(tmp_path: Path):
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    legacy_sqlite = data_dir / "archive_index.sqlite"
-    legacy_sqlite.write_bytes(b"SQLite format 3\x00\x8dlegacy")
-
-    subprocess.run(
-        ["python", "-m", "archive_indexer", "--data-dir", str(data_dir), "init-db"],
-        check=True,
-        env=ENV,
-    )
-
-    assert legacy_sqlite.read_bytes().startswith(b"SQLite format 3")
-    assert (data_dir / "archive_graph.json").exists()
+def test_connect_db_rejects_file_path_fallback(tmp_path: Path):
+    with pytest.raises(RuntimeError, match="Local file-backed databases are no longer supported"):
+        db_mod.connect_db(tmp_path / "archive_graph.json")
 
 
 def test_env_neo4j_connection_details_attempt_neo4j_and_fail_without_fallback(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
@@ -101,7 +85,7 @@ def test_env_neo4j_connection_details_attempt_neo4j_and_fail_without_fallback(tm
             db_mod.init_db()
 
         captured = capsys.readouterr()
-        assert "Using fallback file-backed graph database" not in captured.err
+        assert "fallback" not in captured.err.lower()
         assert not (tmp_path / "data" / "archive_graph.json").exists()
         assert calls == {
             "uri": "bolt://127.0.0.1:17687",
