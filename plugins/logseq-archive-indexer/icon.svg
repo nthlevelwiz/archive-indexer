@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Archive Indexer">
+  <rect width="64" height="64" rx="14" fill="#1f2937"/>
+  <path d="M16 20h32v8H16z" fill="#93c5fd"/>
+  <path d="M18 30h28v18H18z" fill="#dbeafe"/>
+  <path d="M24 36h16M24 42h10" stroke="#1f2937" stroke-width="3" stroke-linecap="round"/>
+</svg>
