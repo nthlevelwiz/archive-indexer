@@ -17,3 +17,4 @@ def test_cli_help_lists_init_db_command():
     )
     assert "init-db" in result.stdout
     assert "--data-dir" in result.stdout
+    assert "visualize-code" in result.stdout

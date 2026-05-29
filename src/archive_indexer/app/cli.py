@@ -6,6 +6,13 @@ import logging
 import uuid
 from pathlib import Path
 
+from archive_indexer.adapters.blarify import (
+    DEFAULT_BLARIFY_EXTENSIONS_TO_SKIP,
+    DEFAULT_BLARIFY_NAMES_TO_SKIP,
+    blarify_neo4j_config_from_env,
+    BlarifyNotInstalledError,
+    build_blarify_graph_in_neo4j,
+)
 from archive_indexer.adapters.db import DatabaseAdapter, init_db, set_data_dir, set_neo4j_config
 from archive_indexer.adapters.embedding import embed_text as embedding_adapter_embed_text
 from archive_indexer.adapters.embedding import cosine_similarity
@@ -27,6 +34,7 @@ explain_buckets_command_arg = "explain-buckets"
 list_bucket_command_arg = "list-bucket"
 list_bucket_contents_command_arg = "list-bucket-contents"
 bucket_stats_command_arg = "bucket-stats"
+visualize_code_command_arg = "visualize-code"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -70,6 +78,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_list_alias.add_argument("bucket_name")
 
     subparsers.add_parser(bucket_stats_command_arg)
+
+    p_visualize = subparsers.add_parser(
+        visualize_code_command_arg, help="Build a Blarify code graph and save it to Neo4j"
+    )
+    p_visualize.add_argument("--root", default=".", help="Repository root to visualize")
+    p_visualize.add_argument("--repo-id", default=None, help="Blarify repository identifier")
+    p_visualize.add_argument("--entity-id", default=None, help="Blarify entity/organization identifier")
+    p_visualize.add_argument(
+        "--extensions-to-skip",
+        action="append",
+        default=None,
+        help=f"Comma-separated extensions to skip (default: {', '.join(DEFAULT_BLARIFY_EXTENSIONS_TO_SKIP)})",
+    )
+    p_visualize.add_argument(
+        "--names-to-skip",
+        action="append",
+        default=None,
+        help=f"Comma-separated file or directory names to skip (default: {', '.join(DEFAULT_BLARIFY_NAMES_TO_SKIP)})",
+    )
+    p_visualize.add_argument("--generate-embeddings", action="store_true", help="Ask Blarify to generate embeddings")
+    p_visualize.add_argument("--create-workflows", action="store_true", help="Ask Blarify to discover execution workflows")
+    p_visualize.add_argument("--create-documentation", action="store_true", help="Ask Blarify to generate documentation nodes")
     return parser
 
 
@@ -97,7 +127,33 @@ def main(argv: list[str] | None = None) -> int:
         n = bucket_service_assign_buckets(config_dir=config_dir)
         print(f"assigned {n} bucket rows")
         return 0
-
+    if args.command == visualize_code_command_arg:
+        config = blarify_neo4j_config_from_env(
+            uri=args.neo4j_uri,
+            user=args.neo4j_user,
+            password=args.neo4j_password,
+            database=args.neo4j_database,
+            repo_id=args.repo_id,
+            entity_id=args.entity_id,
+        )
+        try:
+            result = build_blarify_graph_in_neo4j(
+                root_path=args.root,
+                config=config,
+                extensions_to_skip=args.extensions_to_skip,
+                names_to_skip=args.names_to_skip,
+                generate_embeddings=args.generate_embeddings,
+                create_workflows=args.create_workflows,
+                create_documentation=args.create_documentation,
+            )
+        except BlarifyNotInstalledError as exc:
+            logging.error("%s", exc)
+            return 1
+        print(
+            "saved Blarify code graph to Neo4j: "
+            f"{result.node_count} nodes, {result.relationship_count} relationships"
+        )
+        return 0
 
     db_adapter = DatabaseAdapter()
     try:
