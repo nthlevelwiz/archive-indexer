@@ -1,5 +1,4 @@
 import json
-import sqlite3
 from pathlib import Path
 
 import pytest
@@ -20,7 +19,7 @@ def test_embedding_and_ocr_basics():
 
 
 def _new_db(tmp_path: Path):
-    db_path = tmp_path / "db" / "archive_index.sqlite"
+    db_path = tmp_path / "db" / "archive_index.kuzu"
     db_mod.init_db(db_path)
     return db_path
 
@@ -63,7 +62,7 @@ def test_ingest_folders_and_bookmarks_and_cli_commands(tmp_path: Path, monkeypat
         encoding="utf-8",
     )
 
-    db_path = data_dir / "archive_index.sqlite"
+    db_path = data_dir / "archive_index.kuzu"
     assert cli.main(["--data-dir", str(data_dir), "init-db"]) == 0
     assert cli.main(["--data-dir", str(data_dir), "--config-dir", str(config_dir), "ingest", "--source", "docs"]) == 0
     out = capsys.readouterr().out
@@ -81,8 +80,7 @@ def test_ingest_folders_and_bookmarks_and_cli_commands(tmp_path: Path, monkeypat
     assert cli.main(["--data-dir", str(data_dir), "ocr-videos"]) == 0
     assert cli.main(["--data-dir", str(data_dir), "--config-dir", str(config_dir), "assign-buckets"]) == 0
 
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = db_mod.connect_db(db_path)
     try:
         first = conn.execute("SELECT path_or_url FROM items LIMIT 1").fetchone()["path_or_url"]
         assert cli.main(["--data-dir", str(data_dir), "show-item", first]) == 0

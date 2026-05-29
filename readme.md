@@ -2,7 +2,7 @@
 
 A local-first indexing system for old saved TikToks, videos, audio files, documents, downloads, and browser bookmarks.
 
-The goal is to turn messy folders and bookmark exports into a searchable local archive using deterministic metadata extraction, configurable buckets, OCR from video frames, SQLite, and Ollama embeddings.
+The goal is to turn messy folders and bookmark exports into a searchable local archive using deterministic metadata extraction, configurable buckets, OCR from video frames, Kuzu, and Ollama embeddings.
 
 This project does **not** try to fully understand every file. It creates useful searchable “index cards” from filenames, folder paths, metadata, bookmark titles, URLs, and video frame text.
 
@@ -62,7 +62,7 @@ This project does **not** try to fully understand every file. It creates useful 
 * Keep bucket assignment transparent and debuggable.
 * Avoid Whisper or audio transcription for the MVP.
 * Extract video text by periodically sampling frames and running OCR.
-* Store everything in a local SQLite database.
+* Store everything in a local Kuzu database.
 * Make it easy to add, remove, or revise buckets over time.
 
 ---
@@ -203,7 +203,7 @@ MVP requirement:
 * Recursively scan folders.
 * Ignore hidden/system files by default.
 * Avoid re-indexing unchanged files.
-* Record files in SQLite.
+* Record files in Kuzu.
 
 ---
 
@@ -471,9 +471,9 @@ MVP requirement:
 
 ---
 
-### 9. SQLite Storage
+### 9. Kuzu Storage
 
-The MVP uses SQLite as the main database.
+The MVP uses Kuzu as the main database.
 
 Minimal schema:
 
@@ -561,7 +561,7 @@ CREATE VIRTUAL TABLE chunk_fts USING fts5(
 MVP requirement:
 
 * Store sources, items, chunks, buckets, bucket evidence, embeddings, and FTS text.
-* Use SQLite FTS5 for keyword search.
+* Use the Kuzu-backed chunk index for keyword search.
 * Store embeddings as JSON at first.
 
 ---
@@ -679,7 +679,7 @@ python -m archive_indexer show /archive/old_tiktoks/saved/video_8392.mp4
 
 MVP search behavior:
 
-1. Run SQLite FTS keyword search.
+1. Run Kuzu-backed keyword search.
 2. Run embedding similarity search.
 3. Merge and rank results.
 4. Show path or URL.
@@ -750,7 +750,7 @@ archive-indexer/
     buckets.yaml
     settings.yaml
   data/
-    archive_index.sqlite
+    archive_index.kuzu
     frame_cache/
   src/
     archive_indexer/
@@ -804,7 +804,7 @@ prints available commands.
 
 ## Phase 1: Database Setup
 
-Goal: Create the SQLite database and schema.
+Goal: Create the Kuzu database and schema.
 
 Tasks:
 
@@ -823,7 +823,7 @@ python -m archive_indexer init-db
 creates:
 
 ```text
-data/archive_index.sqlite
+data/archive_index.kuzu
 ```
 
 with all required tables.
@@ -921,7 +921,7 @@ creates rows in `item_buckets` with confidence and evidence.
 
 ## Phase 6: Keyword Search
 
-Goal: Search using SQLite FTS5.
+Goal: Search using the Kuzu-backed chunk index.
 
 Tasks:
 
@@ -952,7 +952,7 @@ Tasks:
 * Add Ollama client.
 * Read embedding model from config.
 * Generate embeddings for chunks.
-* Store embeddings in SQLite as JSON.
+* Store embeddings in Kuzu as JSON.
 * Skip already-embedded chunks.
 * Implement cosine similarity search.
 
@@ -1102,7 +1102,7 @@ Possible features after MVP:
 * Export results as CSV or JSON.
 * Watch mode for new files.
 * Integration with Open WebUI or a local RAG chat interface.
-* Switch from JSON embeddings in SQLite to a vector database.
+* Switch from JSON embeddings in Kuzu to native vector indexing.
 * Add image OCR for screenshots and memes.
 * Add perceptual hashing for duplicate images/videos.
 

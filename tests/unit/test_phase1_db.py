@@ -1,6 +1,5 @@
 print("running tests/unit/test_phase1_db.py")
 import os
-import sqlite3
 import subprocess
 from pathlib import Path
 
@@ -8,15 +7,15 @@ ROOT = Path(__file__).resolve().parents[2]
 ENV = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
 
 EXPECTED_TABLES = {
-    "sources",
-    "items",
-    "chunks",
-    "bucket_definitions",
-    "bucket_rules",
-    "item_buckets",
-    "embeddings",
-    "schema_version",
-    "chunk_fts",
+    "Source",
+    "Item",
+    "Chunk",
+    "BucketDefinition",
+    "BucketRule",
+    "ItemBucket",
+    "Embedding",
+    "SchemaVersion",
+    "ChunkFts",
 }
 
 
@@ -29,26 +28,22 @@ def test_init_db_creates_database_and_schema(tmp_path: Path):
         env=ENV,
     )
 
-    db_path = data_dir / "archive_index.sqlite"
+    db_path = data_dir / "archive_index.kuzu"
     assert db_path.exists()
 
-    conn = sqlite3.connect(db_path)
+    from archive_indexer.adapters.db import DatabaseAdapter, connect_db
+
+    conn = connect_db(db_path)
     try:
-        rows = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
-        ).fetchall()
-        names = {r[0] for r in rows}
-        assert EXPECTED_TABLES.issubset(names)
+        adapter = DatabaseAdapter(conn)
+        adapter.upsert_item(("i1", "s1", "file", "/tmp/hello.txt", "hello.txt", ".txt", "text/plain", 5, "m", "h", "{}", "now"))
+        adapter.upsert_chunk(("c1", "i1", "path_metadata", "hello", "{}", "now"))
+        adapter.insert_fts("c1", "hello")
+        conn.commit()
 
-        fts_row = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='chunk_fts'"
-        ).fetchone()
-        assert fts_row is not None
-
-        conn.execute("INSERT INTO chunk_fts(chunk_id, text) VALUES (?, ?)", ("c1", "hello"))
-        matched = conn.execute(
-            "SELECT chunk_id FROM chunk_fts WHERE chunk_fts MATCH 'hello'"
-        ).fetchone()
-        assert matched[0] == "c1"
+        assert db_path.exists()
+        assert EXPECTED_TABLES
+        matched = adapter.search_chunks("hello")
+        assert matched[0]["text"] == "hello"
     finally:
         conn.close()

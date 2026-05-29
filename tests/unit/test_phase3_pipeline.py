@@ -34,7 +34,7 @@ def test_phase3_bucket_assignment_and_bookmark_ingest(tmp_path: Path):
     bm = tmp_path / "bookmarks.html"
     bm.write_text('<DL><DT><H3>Tech</H3><DL><DT><A HREF="https://example.com/electric">Electrical</A></DL></DL>', encoding="utf-8")
 
-    db_path = data_dir / "archive_index.sqlite"
+    db_path = data_dir / "archive_index.kuzu"
     init_db(db_path)
     assert ingest_folders(db_path, cfg_dir, "local") == 2
     assert ingest_bookmarks(db_path, bm) == 1
