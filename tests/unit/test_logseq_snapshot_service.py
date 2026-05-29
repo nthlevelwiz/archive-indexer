@@ -4,16 +4,23 @@ from pathlib import Path
 from archive_indexer.adapters.db import connect_db, init_db
 from archive_indexer.services.bucket_service import assign_buckets
 from archive_indexer.services.ingest_service import ingest_folders
-from archive_indexer.services.logseq_snapshot_service import build_logseq_snapshot, write_logseq_snapshot
+from archive_indexer.services.logseq_snapshot_service import (
+    build_logseq_snapshot,
+    write_logseq_snapshot,
+)
 
 
-def test_logseq_snapshot_exports_existing_tables_without_embeddings(tmp_path: Path, monkeypatch):
+def test_logseq_snapshot_exports_existing_tables_without_embeddings(
+    tmp_path: Path, monkeypatch
+):
     data_dir = tmp_path / "data"
     config_dir = tmp_path / "config"
     archive = tmp_path / "archive"
     config_dir.mkdir(parents=True)
     archive.mkdir(parents=True)
-    (archive / "electric notes.txt").write_text("electric panel checklist", encoding="utf-8")
+    (archive / "electric notes.txt").write_text(
+        "electric panel checklist", encoding="utf-8"
+    )
     (config_dir / "sources.yaml").write_text(
         f"sources:\n  - type: folder\n    label: local\n    path: {archive}\n",
         encoding="utf-8",
@@ -52,9 +59,66 @@ def test_logseq_snapshot_exports_existing_tables_without_embeddings(tmp_path: Pa
     assert snapshot["read_only_source"] is True
     assert snapshot["items"][0]["chunks"][0]["text"]
     assert snapshot["items"][0]["buckets"][0]["bucket_name"] == "electrical"
-    assert snapshot["embedding_stats"] == [{"model": "unit-model", "count": 1, "dimensions": 2}]
+    assert snapshot["embedding_stats"] == [
+        {"model": "unit-model", "count": 1, "dimensions": 2}
+    ]
     assert "embedding_json" not in json.dumps(snapshot)
 
     output_path = write_logseq_snapshot(tmp_path / "snapshot" / "archive.json")
     loaded = json.loads(output_path.read_text(encoding="utf-8"))
     assert loaded["items"][0]["path_or_url"].endswith("electric notes.txt")
+
+
+def test_logseq_graph_export_writes_python_generated_markdown(
+    tmp_path: Path, monkeypatch
+):
+    data_dir = tmp_path / "data"
+    config_dir = tmp_path / "config"
+    archive = tmp_path / "archive"
+    config_dir.mkdir(parents=True)
+    archive.mkdir(parents=True)
+    (archive / "electric notes.txt").write_text(
+        "electric panel checklist", encoding="utf-8"
+    )
+    (config_dir / "sources.yaml").write_text(
+        f"sources:\n  - type: folder\n    label: local\n    path: {archive}\n",
+        encoding="utf-8",
+    )
+    (config_dir / "buckets.yaml").write_text(
+        "buckets:\n"
+        "  - name: electrical\n"
+        "    threshold: 1\n"
+        "    rules:\n"
+        "      - type: text_regex\n"
+        "        pattern: electric\n"
+        "        weight: 1\n",
+        encoding="utf-8",
+    )
+
+    db_path = data_dir / "archive_index.sqlite"
+    init_db(db_path)
+    assert ingest_folders(db_path, config_dir, "local") == 1
+    assert assign_buckets(db_path, config_dir) >= 1
+    monkeypatch.setattr("archive_indexer.adapters.db._default_data_dir", data_dir)
+
+    from archive_indexer.services.logseq_snapshot_service import write_logseq_graph
+
+    output_dir = write_logseq_graph(tmp_path / "logseq-graph")
+    pages_dir = output_dir / "pages"
+    index_page = pages_dir / "Archive Indexer.md"
+    item_pages = list(
+        pages_dir.glob("Archive Indexer Item - electric notes-txt - *.md")
+    )
+    bucket_page = pages_dir / "Archive Indexer Bucket - electrical.md"
+
+    assert index_page.exists()
+    assert item_pages
+    assert bucket_page.exists()
+    assert (
+        "archive-indexer-direction:: archive-indexer-to-logseq"
+        in index_page.read_text(encoding="utf-8")
+    )
+    item_text = item_pages[0].read_text(encoding="utf-8")
+    assert "archive-indexer-page-type:: item" in item_text
+    assert "electric notes.txt" in item_text
+    assert "[[Archive Indexer Bucket - electrical]]" in item_text

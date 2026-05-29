@@ -7,13 +7,24 @@ import uuid
 from pathlib import Path
 
 from archive_indexer.adapters.db import DatabaseAdapter, init_db, set_data_dir
-from archive_indexer.adapters.embedding import embed_text as embedding_adapter_embed_text
+from archive_indexer.adapters.embedding import (
+    embed_text as embedding_adapter_embed_text,
+)
 from archive_indexer.adapters.embedding import cosine_similarity
-from archive_indexer.adapters.ocr import extract_frame_ocr_text as ocr_adapter_extract_frame_ocr_text
-from archive_indexer.services.bucket_service import assign_buckets as bucket_service_assign_buckets
-from archive_indexer.services.ingest_service import ingest_bookmarks as ingest_service_ingest_bookmarks, ingest_folders as ingest_service_ingest_folders
-from archive_indexer.services.logseq_snapshot_service import write_logseq_snapshot
-
+from archive_indexer.adapters.ocr import (
+    extract_frame_ocr_text as ocr_adapter_extract_frame_ocr_text,
+)
+from archive_indexer.services.bucket_service import (
+    assign_buckets as bucket_service_assign_buckets,
+)
+from archive_indexer.services.ingest_service import (
+    ingest_bookmarks as ingest_service_ingest_bookmarks,
+    ingest_folders as ingest_service_ingest_folders,
+)
+from archive_indexer.services.logseq_snapshot_service import (
+    write_logseq_graph,
+    write_logseq_snapshot,
+)
 
 STR_INIT_DB_COMMAND_ARG = "init-db"
 # todo: use all caps and prefix STR_ for arg variables, use above example
@@ -29,12 +40,19 @@ list_bucket_command_arg = "list-bucket"
 list_bucket_contents_command_arg = "list-bucket-contents"
 bucket_stats_command_arg = "bucket-stats"
 export_logseq_snapshot_command_arg = "export-logseq-snapshot"
+export_logseq_graph_command_arg = "export-logseq-graph"
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="archive_indexer", description="Archive Indexer CLI")
-    parser.add_argument("--data-dir", default="data", help="Directory for SQLite database")
-    parser.add_argument("--config-dir", default="config", help="Directory for config YAML files")
+    parser = argparse.ArgumentParser(
+        prog="archive_indexer", description="Archive Indexer CLI"
+    )
+    parser.add_argument(
+        "--data-dir", default="data", help="Directory for SQLite database"
+    )
+    parser.add_argument(
+        "--config-dir", default="config", help="Directory for config YAML files"
+    )
 
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser(STR_INIT_DB_COMMAND_ARG, help="Initialize SQLite schema")
@@ -42,7 +60,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_ingest = subparsers.add_parser(ingest_command_arg, help="Ingest folder sources")
     p_ingest.add_argument("--source", default=None)
 
-    p_bm = subparsers.add_parser(ingest_bookmarks_command_arg, help="Ingest bookmark html")
+    p_bm = subparsers.add_parser(
+        ingest_bookmarks_command_arg, help="Ingest bookmark html"
+    )
     p_bm.add_argument("path")
 
     subparsers.add_parser(assign_buckets_command_arg)
@@ -74,6 +94,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Export a read-only JSON snapshot for the Logseq Archive Indexer plugin",
     )
     p_logseq_snapshot.add_argument("output_path")
+
+    p_logseq_graph = subparsers.add_parser(
+        export_logseq_graph_command_arg,
+        help="Export a Python-generated, read-only Logseq Markdown graph",
+    )
+    p_logseq_graph.add_argument("output_dir")
     return parser
 
 
@@ -89,7 +115,9 @@ def main(argv: list[str] | None = None) -> int:
         logging.info("Initialized database")
         return 0
     if args.command == ingest_command_arg:
-        n = ingest_service_ingest_folders(config_dir=config_dir, source_label=args.source)
+        n = ingest_service_ingest_folders(
+            config_dir=config_dir, source_label=args.source
+        )
         print(f"ingested {n} items")
         return 0
     if args.command == ingest_bookmarks_command_arg:
@@ -104,7 +132,10 @@ def main(argv: list[str] | None = None) -> int:
         output_path = write_logseq_snapshot(Path(args.output_path))
         print(f"exported Logseq snapshot to {output_path}")
         return 0
-
+    if args.command == export_logseq_graph_command_arg:
+        output_dir = write_logseq_graph(Path(args.output_dir))
+        print(f"exported Logseq graph to {output_dir}")
+        return 0
 
     db_adapter = DatabaseAdapter()
     try:
@@ -138,7 +169,9 @@ def main(argv: list[str] | None = None) -> int:
                 emb = embedding_adapter_embed_text(r["text"])
                 embedding_length = len(emb)
                 json_serialized = json.dumps(emb)
-                db_adapter.insert_embedding(str(uuid.uuid4()), row_id, model, json_serialized, embedding_length)
+                db_adapter.insert_embedding(
+                    str(uuid.uuid4()), row_id, model, json_serialized, embedding_length
+                )
             db_adapter.commit()
             print("embedded")
             return 0

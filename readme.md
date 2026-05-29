@@ -1285,35 +1285,39 @@ Notes:
 - On Windows, `mutmut` may work best inside WSL because it depends on fork-style process behavior.
 ---
 
-## Logseq Plugin Frontend
+## Logseq Export for Logseq
 
-Archive Indexer includes a Logseq plugin scaffold at `plugins/logseq-archive-indexer` for browsing the existing Archive Indexer SQLite data from inside Logseq.
+Archive Indexer now has a Python-only Logseq export path. It writes plain Markdown pages that Logseq can open as a graph, so there is no plugin runtime, SDK install, or JavaScript loading step.
 
 The integration is intentionally unidirectional:
 
 ```text
-Archive Indexer SQLite → snapshot JSON → Logseq plugin → optional Logseq pages
+Archive Indexer SQLite → Python Markdown export → Logseq graph
 ```
 
-The plugin does **not** write back to the Archive Indexer database. It reads a JSON snapshot exported from the existing tables (`sources`, `items`, `chunks`, `item_buckets`, bucket definitions/statistics, and embedding statistics) and lets you browse or selectively import item pages into Logseq.
+The exporter does **not** write back to the Archive Indexer database. It reads the existing tables (`sources`, `items`, `chunks`, `item_buckets`, bucket definitions/statistics, and embedding statistics) and writes Logseq-readable pages with `archive-indexer-direction:: archive-indexer-to-logseq` provenance. Raw embedding vectors are not exported.
 
-### Export a snapshot
+### Export a Logseq graph
+
+```bash
+python -m archive_indexer export-logseq-graph ./logseq-archive-indexer
+```
+
+Open `./logseq-archive-indexer` as a Logseq graph. The exporter creates a `pages/` directory with:
+
+- `Archive Indexer` as the graph index.
+- One page per indexed item.
+- One page per source.
+- One page per bucket, with links back to matching items.
+
+Re-run the command whenever Archive Indexer changes. Treat the Logseq graph as a read-only view of Archive Indexer data; make durable data changes in Archive Indexer and export again.
+
+### Optional JSON snapshot
+
+If another tool needs structured data instead of Markdown, export the same read-only data as JSON:
 
 ```bash
 python -m archive_indexer export-logseq-snapshot archive-indexer-logseq.json
 ```
 
-The snapshot omits raw embedding vectors and includes only embedding counts/dimensions so the Logseq frontend stays focused on browsable metadata and text.
-
-### Load the plugin
-
-Install the Logseq plugin SDK dependency first:
-
-```bash
-cd plugins/logseq-archive-indexer
-npm install
-```
-
-Then enable Logseq developer mode, choose **Load unpacked plugin**, and select `plugins/logseq-archive-indexer` directly. Do not select the repository root.
-
-If Logseq reports that the plugin content took too long to load, check that `plugins/logseq-archive-indexer/node_modules/@logseq/libs/dist/lsplugin.user.js` exists, then reload the plugin.
+The older experimental plugin scaffold remains in `plugins/logseq-archive-indexer`, but the recommended path is the Python Markdown export above because it avoids Logseq plugin load timeouts entirely.
