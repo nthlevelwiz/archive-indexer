@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from collections.abc import Iterable
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -100,6 +101,7 @@ class GraphStore:
 
 
 _MEMORY_STORES: dict[str, GraphStore] = {}
+_PRINTED_FALLBACK_PATHS: set[str] = set()
 
 
 def set_data_dir(data_dir: str | Path) -> None:
@@ -128,6 +130,17 @@ def get_db_path(data_dir: str | Path | None = None) -> Path:
     return Path(data_dir) / GRAPH_STORE_FILENAME if data_dir is not None else _default_data_dir / GRAPH_STORE_FILENAME
 
 
+def _print_fallback_notice(path: Path) -> None:
+    resolved = str(path.resolve())
+    if resolved in _PRINTED_FALLBACK_PATHS:
+        return
+    _PRINTED_FALLBACK_PATHS.add(resolved)
+    print(
+        f"Using fallback file-backed graph database at {resolved}. Set NEO4J_URI to use Neo4j.",
+        file=sys.stderr,
+    )
+
+
 def _store_for_path(path: str | Path | None) -> GraphStore:
     store_path = get_db_path() if path is None else Path(path)
     key = str(store_path.resolve())
@@ -144,11 +157,15 @@ def _should_use_neo4j(uri: str | None) -> bool:
 
 def connect_db(db_path: str | Path | None = None):
     if db_path is not None:
-        return FileGraphAdapter(_store_for_path(db_path))
+        fallback_path = Path(db_path)
+        _print_fallback_notice(fallback_path)
+        return FileGraphAdapter(_store_for_path(fallback_path))
     uri = _neo4j_uri
     if _should_use_neo4j(uri):
         return Neo4jDatabaseAdapter(uri or DEFAULT_NEO4J_URI, _neo4j_user, _neo4j_password, _neo4j_database)
-    return FileGraphAdapter(_store_for_path(get_db_path()))
+    fallback_path = get_db_path()
+    _print_fallback_notice(fallback_path)
+    return FileGraphAdapter(_store_for_path(fallback_path))
 
 
 def init_db(db_path: str | Path | None = None) -> None:

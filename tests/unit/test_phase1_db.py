@@ -10,11 +10,16 @@ ENV = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
 def test_init_db_creates_database_and_schema(tmp_path: Path):
     data_dir = tmp_path / "data"
     print("executing command")
-    subprocess.run(
+    result = subprocess.run(
         ["python", "-m", "archive_indexer", "--data-dir", str(data_dir), "init-db"],
         check=True,
+        capture_output=True,
+        text=True,
         env=ENV,
     )
+
+    assert "Using fallback file-backed graph database" in result.stderr
+    assert str(data_dir / "archive_graph.json") in result.stderr
 
     db_path = data_dir / "archive_graph.json"
     assert db_path.exists()
