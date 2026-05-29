@@ -435,11 +435,11 @@ class Neo4jDatabaseAdapter(BaseGraphAdapter):
 
     @staticmethod
     def _write_tx(tx, cypher: str, params: dict[str, Any]):
-        return list(tx.run(cypher, **params))
+        return list(tx.run(cypher, parameters_=params))
 
     @staticmethod
     def _read_tx(tx, cypher: str, params: dict[str, Any]):
-        return list(tx.run(cypher, **params))
+        return list(tx.run(cypher, parameters_=params))
 
     def _execute_write(self, cypher: str, **params):
         with self.driver.session(database=self.database) as session:

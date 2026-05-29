@@ -14,7 +14,11 @@ class RecordingTx:
         self.driver = driver
         self.mode = mode
 
-    def run(self, cypher: str, **params):
+    def run(self, query: str, parameters_=None, **kwargs):
+        if kwargs:
+            raise TypeError(f"Unexpected keyword parameters: {kwargs}")
+        params = parameters_ or {}
+        cypher = query
         self.driver.calls.append({"mode": self.mode, "cypher": cypher, "params": params})
         for marker, rows in self.driver.rows_by_marker.items():
             if marker in cypher:

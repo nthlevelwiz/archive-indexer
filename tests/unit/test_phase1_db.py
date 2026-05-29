@@ -131,9 +131,11 @@ def test_neo4j_execute_read_allows_query_cypher_parameter():
         pass
 
     class FakeTx:
-        def run(self, cypher, **params):
-            calls["cypher"] = cypher
-            calls["params"] = params
+        def run(self, query, parameters_=None, **kwargs):
+            if kwargs:
+                raise TypeError(f"Unexpected keyword parameters: {kwargs}")
+            calls["cypher"] = query
+            calls["params"] = parameters_ or {}
             return [FakeRecord(path_or_url="/tmp/a.txt", text="hello")]
 
     class FakeSession:
