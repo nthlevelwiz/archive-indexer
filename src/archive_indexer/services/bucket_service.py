@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 
 from ..core.parsers import mini_yaml_parse
-from ..adapters.db import connect_db, now_iso, upsert_bucket_definition, insert_bucket_rule, upsert_item_bucket
+from ..adapters.db import connect_db, now_iso, upsert_bucket_definition, insert_bucket_rule, upsert_item_bucket, fetch_items_for_bucket_assignment
 
 
 def assign_buckets(db_path: Path | None = None, config_dir: Path | None = None) -> int:
@@ -31,8 +31,7 @@ def assign_buckets(db_path: Path | None = None, config_dir: Path | None = None) 
                     r.get("applies_to", "text"),
                 )
 
-        # todo: move to db wrapper
-        items = conn.execute("SELECT id, path_or_url, filename, extension, metadata_json FROM items").fetchall()
+        items = fetch_items_for_bucket_assignment(conn)
         for it in items:
             text = " ".join([it["path_or_url"] or "", it["filename"] or "", it["extension"] or "", it["metadata_json"] or ""])
             matched = False

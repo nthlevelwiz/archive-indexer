@@ -1,6 +1,5 @@
 print("running tests/unit/test_roadmap_phases.py")
 import os
-import sqlite3
 import subprocess
 from pathlib import Path
 
@@ -37,8 +36,10 @@ def test_roadmap_phases_end_to_end(tmp_path: Path):
     result = run(["python", "-m", "archive_indexer", "--data-dir", "data", "search", "electric"], tmp_path)
     assert "electric" in result.stdout.lower()
 
-    db = tmp_path / "data" / "archive_index.sqlite"
-    conn = sqlite3.connect(db)
+    db = tmp_path / "data" / "archive_index.kuzu"
+    from archive_indexer.adapters.db import connect_db
+
+    conn = connect_db(db)
     try:
         assert conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] >= 4
         assert conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0] >= 4

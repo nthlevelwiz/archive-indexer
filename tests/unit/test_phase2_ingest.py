@@ -22,7 +22,7 @@ def test_phase2_ingest_folder_and_reingest(tmp_path: Path):
         encoding="utf-8",
     )
 
-    db_path = data_dir / "archive_index.sqlite"
+    db_path = data_dir / "archive_index.kuzu"
     init_db(db_path)
 
     inserted = ingest_folders(db_path, cfg_dir, "local")

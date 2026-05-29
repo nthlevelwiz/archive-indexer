@@ -31,11 +31,11 @@ bucket_stats_command_arg = "bucket-stats"
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="archive_indexer", description="Archive Indexer CLI")
-    parser.add_argument("--data-dir", default="data", help="Directory for SQLite database")
+    parser.add_argument("--data-dir", default="data", help="Directory for Kuzu database")
     parser.add_argument("--config-dir", default="config", help="Directory for config YAML files")
 
     subparsers = parser.add_subparsers(dest="command")
-    subparsers.add_parser(STR_INIT_DB_COMMAND_ARG, help="Initialize SQLite schema")
+    subparsers.add_parser(STR_INIT_DB_COMMAND_ARG, help="Initialize Kuzu schema")
 
     p_ingest = subparsers.add_parser(ingest_command_arg, help="Ingest folder sources")
     p_ingest.add_argument("--source", default=None)
