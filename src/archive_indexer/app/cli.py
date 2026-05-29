@@ -6,7 +6,7 @@ import logging
 import uuid
 from pathlib import Path
 
-from archive_indexer.adapters.db import DatabaseAdapter, init_db, set_data_dir
+from archive_indexer.adapters.db import DatabaseAdapter, init_db, set_data_dir, set_neo4j_config
 from archive_indexer.adapters.embedding import embed_text as embedding_adapter_embed_text
 from archive_indexer.adapters.embedding import cosine_similarity
 from archive_indexer.adapters.ocr import extract_frame_ocr_text as ocr_adapter_extract_frame_ocr_text
@@ -31,11 +31,15 @@ bucket_stats_command_arg = "bucket-stats"
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="archive_indexer", description="Archive Indexer CLI")
-    parser.add_argument("--data-dir", default="data", help="Directory for SQLite database")
+    parser.add_argument("--data-dir", default="data", help="Directory for local graph fallback storage")
+    parser.add_argument("--neo4j-uri", default=None, help="Neo4j URI, for example bolt://localhost:7687")
+    parser.add_argument("--neo4j-user", default=None, help="Neo4j username")
+    parser.add_argument("--neo4j-password", default=None, help="Neo4j password")
+    parser.add_argument("--neo4j-database", default=None, help="Neo4j database name")
     parser.add_argument("--config-dir", default="config", help="Directory for config YAML files")
 
     subparsers = parser.add_subparsers(dest="command")
-    subparsers.add_parser(STR_INIT_DB_COMMAND_ARG, help="Initialize SQLite schema")
+    subparsers.add_parser(STR_INIT_DB_COMMAND_ARG, help="Initialize Neo4j constraints and indexes")
 
     p_ingest = subparsers.add_parser(ingest_command_arg, help="Ingest folder sources")
     p_ingest.add_argument("--source", default=None)
@@ -74,6 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     set_data_dir(args.data_dir)
+    set_neo4j_config(args.neo4j_uri, args.neo4j_user, args.neo4j_password, args.neo4j_database)
     config_dir = Path(args.config_dir)
 
     if args.command == STR_INIT_DB_COMMAND_ARG:
