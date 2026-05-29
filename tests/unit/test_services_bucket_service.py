@@ -1,4 +1,3 @@
-import sqlite3
 from pathlib import Path
 
 from archive_indexer.adapters.db import init_db, connect_db
@@ -22,7 +21,7 @@ def test_assign_buckets_assigns_match_and_fallback(tmp_path: Path):
     count = assign_buckets(db_path, cfg_dir)
     assert count == 2
 
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     rows = conn.execute("SELECT item_id,bucket_name FROM item_buckets ORDER BY item_id").fetchall()
     conn.close()
-    assert rows == [("1", "electrical"), ("2", "review_later")]
+    assert [(r["item_id"], r["bucket_name"]) for r in rows] == [("1", "electrical"), ("2", "review_later")]

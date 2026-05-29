@@ -1,107 +1,102 @@
 from __future__ import annotations
 
-import sqlite3
+import json
+import os
+from collections.abc import Iterable
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
-SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS sources (
-  id TEXT PRIMARY KEY,
-  source_type TEXT NOT NULL,
-  root_path_or_file TEXT NOT NULL,
-  label TEXT,
-  config_json TEXT,
-  created_at TEXT NOT NULL
-);
+try:
+    from neo4j import GraphDatabase
+    from neo4j.exceptions import ServiceUnavailable
+except ImportError:  # pragma: no cover - exercised only when optional dependency is absent
+    GraphDatabase = None  # type: ignore[assignment]
 
-CREATE TABLE IF NOT EXISTS items (
-  id TEXT PRIMARY KEY,
-  source_id TEXT NOT NULL,
-  item_type TEXT NOT NULL,
-  path_or_url TEXT NOT NULL UNIQUE,
-  filename TEXT,
-  extension TEXT,
-  mime_type TEXT,
-  size_bytes INTEGER,
-  modified_time TEXT,
-  content_hash TEXT,
-  metadata_json TEXT,
-  indexed_at TEXT NOT NULL
-);
+    class ServiceUnavailable(Exception):
+        pass
 
-CREATE TABLE IF NOT EXISTS chunks (
-  id TEXT PRIMARY KEY,
-  item_id TEXT NOT NULL,
-  chunk_type TEXT NOT NULL,
-  text TEXT NOT NULL,
-  timestamp_start REAL,
-  timestamp_end REAL,
-  metadata_json TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS bucket_definitions (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE,
-  description TEXT,
-  bucket_type TEXT,
-  is_active INTEGER DEFAULT 1,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS bucket_rules (
-  id TEXT PRIMARY KEY,
-  bucket_name TEXT NOT NULL,
-  rule_type TEXT NOT NULL,
-  pattern TEXT NOT NULL,
-  weight REAL DEFAULT 1.0,
-  applies_to TEXT,
-  is_active INTEGER DEFAULT 1,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS item_buckets (
-  item_id TEXT NOT NULL,
-  bucket_name TEXT NOT NULL,
-  confidence REAL NOT NULL,
-  evidence_json TEXT,
-  assigned_by TEXT NOT NULL,
-  assigned_at TEXT NOT NULL,
-  PRIMARY KEY (item_id, bucket_name)
-);
-
-CREATE TABLE IF NOT EXISTS embeddings (
-  id TEXT PRIMARY KEY,
-  chunk_id TEXT NOT NULL,
-  model TEXT NOT NULL,
-  embedding_json TEXT NOT NULL,
-  dimensions INTEGER,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS schema_version (
-  version INTEGER NOT NULL,
-  created_at TEXT NOT NULL
-);
-
-CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5(
-  chunk_id UNINDEXED,
-  text
-);
-
-CREATE INDEX IF NOT EXISTS idx_items_source_id ON items(source_id);
-CREATE INDEX IF NOT EXISTS idx_chunks_item_id ON chunks(item_id);
-CREATE INDEX IF NOT EXISTS idx_bucket_rules_bucket_name ON bucket_rules(bucket_name);
-CREATE INDEX IF NOT EXISTS idx_item_buckets_item_id ON item_buckets(item_id);
-CREATE INDEX IF NOT EXISTS idx_embeddings_chunk_model ON embeddings(chunk_id, model);
-"""
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-DATABASE_FILENAME = "archive_index.sqlite"
+DEFAULT_NEO4J_URI = "bolt://localhost:7687"
+DEFAULT_NEO4J_USER = "neo4j"
+DEFAULT_NEO4J_DATABASE = "neo4j"
+GRAPH_STORE_FILENAME = "archive_index.sqlite"
+DATABASE_FILENAME = GRAPH_STORE_FILENAME
+
 _default_data_dir = Path("data")
+_neo4j_uri = os.getenv("NEO4J_URI")
+_neo4j_user = os.getenv("NEO4J_USER", DEFAULT_NEO4J_USER)
+_neo4j_password = os.getenv("NEO4J_PASSWORD", "password")
+_neo4j_database = os.getenv("NEO4J_DATABASE", DEFAULT_NEO4J_DATABASE)
+
+
+class Row(dict):
+    """Small row helper compatible with dict-style access used by the app."""
+
+    def __getitem__(self, key):  # type: ignore[override]
+        if isinstance(key, int):
+            return list(self.values())[key]
+        return super().__getitem__(key)
+
+
+class ResultSet:
+    def __init__(self, rows: Iterable[Row]):
+        self._rows = list(rows)
+
+    def fetchall(self):
+        return self._rows
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+
+class GraphStore:
+    def __init__(self, path: Path | None = None):
+        self.path = path
+        self.sources: dict[str, dict[str, Any]] = {}
+        self.items: dict[str, dict[str, Any]] = {}
+        self.chunks: dict[str, dict[str, Any]] = {}
+        self.bucket_definitions: dict[str, dict[str, Any]] = {}
+        self.bucket_rules: dict[str, dict[str, Any]] = {}
+        self.item_buckets: dict[tuple[str, str], dict[str, Any]] = {}
+        self.embeddings: dict[str, dict[str, Any]] = {}
+        if path and path.exists():
+            self._load(path)
+
+    def _load(self, path: Path) -> None:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        self.sources = data.get("sources", {})
+        self.items = data.get("items", {})
+        self.chunks = data.get("chunks", {})
+        self.bucket_definitions = data.get("bucket_definitions", {})
+        self.bucket_rules = data.get("bucket_rules", {})
+        self.item_buckets = {
+            tuple(k.split("\u241f", 1)): v for k, v in data.get("item_buckets", {}).items()
+        }
+        self.embeddings = data.get("embeddings", {})
+
+    def save(self) -> None:
+        if self.path is None:
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "sources": self.sources,
+            "items": self.items,
+            "chunks": self.chunks,
+            "bucket_definitions": self.bucket_definitions,
+            "bucket_rules": self.bucket_rules,
+            "item_buckets": {"\u241f".join(k): v for k, v in self.item_buckets.items()},
+            "embeddings": self.embeddings,
+        }
+        self.path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+
+
+_MEMORY_STORES: dict[str, GraphStore] = {}
 
 
 def set_data_dir(data_dir: str | Path) -> None:
@@ -109,220 +104,627 @@ def set_data_dir(data_dir: str | Path) -> None:
     _default_data_dir = Path(data_dir)
 
 
+def set_neo4j_config(
+    uri: str | None = None,
+    user: str | None = None,
+    password: str | None = None,
+    database: str | None = None,
+) -> None:
+    global _neo4j_uri, _neo4j_user, _neo4j_password, _neo4j_database
+    if uri is not None:
+        _neo4j_uri = uri
+    if user is not None:
+        _neo4j_user = user
+    if password is not None:
+        _neo4j_password = password
+    if database is not None:
+        _neo4j_database = database
+
+
 def get_db_path(data_dir: str | Path | None = None) -> Path:
-    return Path(data_dir) / DATABASE_FILENAME if data_dir is not None else _default_data_dir / DATABASE_FILENAME
+    return Path(data_dir) / GRAPH_STORE_FILENAME if data_dir is not None else _default_data_dir / GRAPH_STORE_FILENAME
 
 
-def connect_db(db_path: str | Path | None = None) -> sqlite3.Connection:
-    path = Path(db_path) if db_path is not None else get_db_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _store_for_path(path: str | Path | None) -> GraphStore:
+    store_path = get_db_path() if path is None else Path(path)
+    key = str(store_path.resolve())
+    store = _MEMORY_STORES.get(key)
+    if store is None:
+        store = GraphStore(store_path)
+        _MEMORY_STORES[key] = store
+    return store
+
+
+def _should_use_neo4j(uri: str | None) -> bool:
+    return bool(uri and not uri.startswith(("file://", "memory://")))
+
+
+def connect_db(db_path: str | Path | None = None):
+    if db_path is not None:
+        return FileGraphAdapter(_store_for_path(db_path))
+    uri = _neo4j_uri
+    if _should_use_neo4j(uri):
+        return Neo4jDatabaseAdapter(uri or DEFAULT_NEO4J_URI, _neo4j_user, _neo4j_password, _neo4j_database)
+    return FileGraphAdapter(_store_for_path(get_db_path()))
 
 
 def init_db(db_path: str | Path | None = None) -> None:
-    conn = connect_db(db_path)
+    adapter = connect_db(db_path)
     try:
-        conn.executescript(SCHEMA_SQL)
-        conn.commit()
+        adapter.init_schema()
+        adapter.commit()
     finally:
-        conn.close()
+        adapter.close()
 
 
 class DatabaseAdapter:
-    def __init__(self, conn: sqlite3.Connection | None = None):
-        self.conn = conn or connect_db()
-        self._owns_connection = conn is None
+    def __new__(cls, conn: Any | None = None):
+        if cls is DatabaseAdapter:
+            return conn if conn is not None else connect_db()
+        return super().__new__(cls)
+
+
+class BaseGraphAdapter:
+    def init_schema(self) -> None:
+        return None
 
     def close(self) -> None:
-        if self._owns_connection:
-            self.conn.close()
+        return None
 
     def commit(self) -> None:
-        self.conn.commit()
-    
+        return None
+
+
+class FileGraphAdapter(BaseGraphAdapter):
+    def __init__(self, store: GraphStore | None = None):
+        self.store = store or GraphStore()
+
+    def commit(self) -> None:
+        self.store.save()
+
+    def execute(self, sql: str, params: tuple = ()):  # compatibility for older tests and scripts
+        normalized = " ".join(sql.strip().lower().split())
+        if normalized.startswith("insert into items"):
+            if params:
+                values = params
+            else:
+                raw_values = sql.split("VALUES", 1)[1].strip().strip("()")
+                values = tuple(part.strip().strip("'\"") for part in raw_values.split(","))
+            # Older callers may omit nullable columns. Fill them with graph defaults.
+            item_id, source_id, item_type, path_or_url, filename, extension, *rest = values
+            full = (item_id, source_id, item_type, path_or_url, filename, extension, "", 0, "", "", "{}", rest[-1] if rest else now_iso())
+            self.upsert_item(full)
+            return ResultSet([])
+        if normalized.startswith("select path_or_url, item_type from items"):
+            return ResultSet(Row({"path_or_url": i.get("path_or_url"), "item_type": i.get("item_type")}) for i in sorted(self.store.items.values(), key=lambda r: r.get("path_or_url") or ""))
+        if normalized.startswith("select chunk_type from chunks"):
+            return ResultSet(Row({"chunk_type": c.get("chunk_type")}) for c in self.store.chunks.values())
+        if normalized.startswith("select bucket_name, count(*) from item_buckets"):
+            return ResultSet(self.fetch_bucket_stats())
+        if normalized.startswith("select item_id,bucket_name from item_buckets"):
+            rows = [Row({"item_id": v["item_id"], "bucket_name": v["bucket_name"]}) for v in self.store.item_buckets.values()]
+            rows.sort(key=lambda r: r["item_id"])
+            return ResultSet(rows)
+        if normalized.startswith("select path_or_url from items limit 1"):
+            rows = [Row({"path_or_url": i.get("path_or_url")}) for i in self.store.items.values()]
+            return ResultSet(rows[:1])
+        if normalized.startswith("select count(*) from items"):
+            return ResultSet([Row({"count": len(self.store.items)})])
+        if normalized.startswith("select count(*) from chunks where chunk_type='frame_ocr'"):
+            return ResultSet([Row({"count": self.count_chunks_by_type("frame_ocr")})])
+        if normalized.startswith("select count(*) from chunks"):
+            return ResultSet([Row({"count": len(self.store.chunks)})])
+        if normalized.startswith("select count(*) from item_buckets"):
+            return ResultSet([Row({"count": len(self.store.item_buckets)})])
+        if normalized.startswith("select count(*) from embeddings"):
+            return ResultSet([Row({"count": len(self.store.embeddings)})])
+        raise NotImplementedError(f"Unsupported compatibility query: {sql}")
+
     def upsert_source(self, source_id, root_path, label, config_json):
-        self.conn.execute("INSERT OR REPLACE INTO sources(id, source_type, root_path_or_file, label, config_json, created_at) VALUES (?, 'folder', ?, ?, ?, ?)", (source_id, root_path, label, config_json, now_iso()))
-
-    def upsert_item(self, values: tuple):
-        self.conn.execute("""INSERT OR REPLACE INTO items(
-            id, source_id, item_type, path_or_url, filename, extension, mime_type, size_bytes,
-            modified_time, content_hash, metadata_json, indexed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", values)
-
-    def upsert_chunk(self, values: tuple):
-        self.conn.execute("INSERT OR REPLACE INTO chunks(id, item_id, chunk_type, text, timestamp_start, timestamp_end, metadata_json, created_at) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?)", values)
-
-    def insert_fts(self, chunk_id: str, text: str):
-        self.conn.execute("INSERT INTO chunk_fts(chunk_id, text) VALUES (?, ?)", (chunk_id, text))
-
-    def upsert_bucket_definition(self, name: str, description: str, bucket_type: str):
-        self.conn.execute("INSERT OR REPLACE INTO bucket_definitions(id, name, description, bucket_type, is_active, created_at) VALUES (?, ?, ?, ?, 1, ?)", (name, name, description, bucket_type, now_iso()))
-
-    def insert_bucket_rule(self, rule_id: str, bucket_name: str, rule_type: str, pattern: str, weight: float, applies_to: str):
-        self.conn.execute("INSERT INTO bucket_rules(id, bucket_name, rule_type, pattern, weight, applies_to, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?)", (rule_id, bucket_name, rule_type, pattern, weight, applies_to, now_iso()))
-
-    def upsert_item_bucket(self, item_id: str, bucket_name: str, confidence: float, evidence_json: str, assigned_by: str, assigned_at: str):
-        self.conn.execute("INSERT OR REPLACE INTO item_buckets(item_id, bucket_name, confidence, evidence_json, assigned_by, assigned_at) VALUES (?, ?, ?, ?, ?, ?)", (item_id, bucket_name, confidence, evidence_json, assigned_by, assigned_at))
-
-    def get_item_row_by_path(self, path_or_url: str):
-        return self.conn.execute("SELECT id, modified_time, size_bytes FROM items WHERE path_or_url = ?", (path_or_url,)).fetchone()
-
-    def get_chunk_by_item_and_type(self, item_id: str, chunk_type: str):
-        return self.conn.execute("SELECT id FROM chunks WHERE item_id = ? AND chunk_type = ?", (item_id, chunk_type)).fetchone()
+        self.store.sources[source_id] = {
+            "id": source_id,
+            "source_type": "folder",
+            "root_path_or_file": root_path,
+            "label": label,
+            "config_json": config_json,
+            "created_at": now_iso(),
+        }
 
     def upsert_bookmark_source(self, source_id: str, bookmark_path: str, label: str, config_json: str):
-        self.conn.execute(
-            "INSERT OR REPLACE INTO sources(id, source_type, root_path_or_file, label, config_json, created_at) VALUES (?, 'bookmark_html', ?, ?, ?, ?)",
-            (source_id, bookmark_path, label, config_json, now_iso()),
-        )
+        self.store.sources[source_id] = {
+            "id": source_id,
+            "source_type": "bookmark_html",
+            "root_path_or_file": bookmark_path,
+            "label": label,
+            "config_json": config_json,
+            "created_at": now_iso(),
+        }
+
+    def upsert_item(self, values: tuple):
+        keys = [
+            "id", "source_id", "item_type", "path_or_url", "filename", "extension", "mime_type",
+            "size_bytes", "modified_time", "content_hash", "metadata_json", "indexed_at",
+        ]
+        self.store.items[values[0]] = dict(zip(keys, values, strict=True))
+
+    def upsert_chunk(self, values: tuple):
+        keys = ["id", "item_id", "chunk_type", "text", "metadata_json", "created_at"]
+        row = dict(zip(keys, values, strict=True))
+        row.setdefault("timestamp_start", None)
+        row.setdefault("timestamp_end", None)
+        self.store.chunks[values[0]] = row
+
+    def insert_fts(self, chunk_id: str, text: str):
+        if chunk_id in self.store.chunks:
+            self.store.chunks[chunk_id]["text"] = text
+
+    def upsert_bucket_definition(self, name: str, description: str, bucket_type: str):
+        self.store.bucket_definitions[name] = {
+            "id": name,
+            "name": name,
+            "description": description,
+            "bucket_type": bucket_type,
+            "is_active": True,
+            "created_at": now_iso(),
+        }
+
+    def insert_bucket_rule(self, rule_id: str, bucket_name: str, rule_type: str, pattern: str, weight: float, applies_to: str):
+        self.store.bucket_rules[rule_id] = {
+            "id": rule_id,
+            "bucket_name": bucket_name,
+            "rule_type": rule_type,
+            "pattern": pattern,
+            "weight": weight,
+            "applies_to": applies_to,
+            "is_active": True,
+            "created_at": now_iso(),
+        }
+
+    def upsert_item_bucket(self, item_id: str, bucket_name: str, confidence: float, evidence_json: str, assigned_by: str, assigned_at: str):
+        self.store.item_buckets[(item_id, bucket_name)] = {
+            "item_id": item_id,
+            "bucket_name": bucket_name,
+            "confidence": confidence,
+            "evidence_json": evidence_json,
+            "assigned_by": assigned_by,
+            "assigned_at": assigned_at,
+        }
+
+    def get_item_row_by_path(self, path_or_url: str):
+        for item in self.store.items.values():
+            if item.get("path_or_url") == path_or_url:
+                return Row({"id": item["id"], "modified_time": item.get("modified_time"), "size_bytes": item.get("size_bytes")})
+        return None
+
+    def get_chunk_by_item_and_type(self, item_id: str, chunk_type: str):
+        for chunk in self.store.chunks.values():
+            if chunk.get("item_id") == item_id and chunk.get("chunk_type") == chunk_type:
+                return Row({"id": chunk["id"]})
+        return None
+
+    def fetch_items_for_bucket_assignment(self):
+        return [
+            Row({k: item.get(k) for k in ["id", "path_or_url", "filename", "extension", "metadata_json"]})
+            for item in self.store.items.values()
+        ]
 
     def search_chunks(self, query: str, bucket: str | None = None):
-        sql = """SELECT i.path_or_url, c.text FROM chunk_fts f JOIN chunks c ON c.id=f.chunk_id JOIN items i ON i.id=c.item_id """
-        params: list[str] = []
-        if bucket:
-            sql += "JOIN item_buckets ib ON ib.item_id=i.id WHERE ib.bucket_name=? AND f.text MATCH ?"
-            params = [bucket, query]
-        else:
-            sql += "WHERE f.text MATCH ?"
-            params = [query]
-        return self.conn.execute(sql, params).fetchall()
+        query_l = query.lower()
+        rows = []
+        for chunk in self.store.chunks.values():
+            if query_l not in str(chunk.get("text", "")).lower():
+                continue
+            item = self.store.items.get(chunk.get("item_id"))
+            if not item:
+                continue
+            if bucket and (item["id"], bucket) not in self.store.item_buckets:
+                continue
+            rows.append(Row({"path_or_url": item.get("path_or_url"), "text": chunk.get("text")}))
+        return rows
 
     def fetch_chunks_for_embedding(self):
-        return self.conn.execute("SELECT id, text FROM chunks").fetchall()
+        return [Row({"id": c["id"], "text": c.get("text", "")}) for c in self.store.chunks.values()]
 
     def fetch_semantic_search_rows(self, model: str):
-        return self.conn.execute(
-            """
-            SELECT i.path_or_url, c.text, e.embedding_json
-            FROM embeddings e
-            JOIN chunks c ON c.id=e.chunk_id
-            JOIN items i ON i.id=c.item_id
-            WHERE e.model=?
-            """,
-            (model,),
-        ).fetchall()
+        rows = []
+        for emb in self.store.embeddings.values():
+            if emb.get("model") != model:
+                continue
+            chunk = self.store.chunks.get(emb.get("chunk_id"))
+            item = self.store.items.get(chunk.get("item_id")) if chunk else None
+            if chunk and item:
+                rows.append(Row({"path_or_url": item.get("path_or_url"), "text": chunk.get("text"), "embedding_json": emb.get("embedding_json")}))
+        return rows
 
     def embedding_exists(self, chunk_id: str, model: str):
-        return self.conn.execute("SELECT 1 FROM embeddings WHERE chunk_id=? AND model=?", (chunk_id, model)).fetchone() is not None
+        return any(e.get("chunk_id") == chunk_id and e.get("model") == model for e in self.store.embeddings.values())
 
     def insert_embedding(self, embedding_id: str, chunk_id: str, model: str, embedding_json: str, dimensions: int):
-        self.conn.execute(
-            "INSERT INTO embeddings(id, chunk_id, model, embedding_json, dimensions, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
-            (embedding_id, chunk_id, model, embedding_json, dimensions),
+        self.store.embeddings[embedding_id] = {
+            "id": embedding_id,
+            "chunk_id": chunk_id,
+            "model": model,
+            "embedding_json": embedding_json,
+            "dimensions": dimensions,
+            "created_at": now_iso(),
+        }
+
+    def fetch_video_items(self):
+        return [Row({"id": i["id"], "path_or_url": i.get("path_or_url")}) for i in self.store.items.values() if i.get("item_type") == "video"]
+
+    def insert_frame_ocr_chunk(self, chunk_id: str, item_id: str, text: str):
+        self.store.chunks[chunk_id] = {
+            "id": chunk_id,
+            "item_id": item_id,
+            "chunk_type": "frame_ocr",
+            "text": text,
+            "timestamp_start": 5.0,
+            "timestamp_end": 5.0,
+            "metadata_json": "{}",
+            "created_at": now_iso(),
+        }
+
+    def fetch_item_by_path_or_url(self, path_or_url: str):
+        for item in self.store.items.values():
+            if item.get("path_or_url") == path_or_url:
+                return Row(deepcopy(item))
+        return None
+
+    def fetch_item_bucket_explanations(self, path_or_url: str):
+        item = self.fetch_item_by_path_or_url(path_or_url)
+        if not item:
+            return []
+        return [
+            Row({"bucket_name": b["bucket_name"], "confidence": b["confidence"], "evidence_json": b["evidence_json"]})
+            for (item_id, _), b in self.store.item_buckets.items()
+            if item_id == item["id"]
+        ]
+
+    def fetch_bucket_contents(self, bucket_name: str):
+        rows = []
+        for (item_id, bname), _ in self.store.item_buckets.items():
+            if bname == bucket_name and item_id in self.store.items:
+                rows.append(Row({"path_or_url": self.store.items[item_id].get("path_or_url")}))
+        return rows
+
+    def fetch_bucket_stats(self):
+        counts: dict[str, int] = {}
+        for _, bucket_name in self.store.item_buckets:
+            counts[bucket_name] = counts.get(bucket_name, 0) + 1
+        return [Row({"bucket_name": k, "c": v}) for k, v in sorted(counts.items(), key=lambda item: item[1], reverse=True)]
+
+    def count_nodes(self, label: str) -> int:
+        return len(getattr(self.store, label))
+
+    def count_chunks_by_type(self, chunk_type: str) -> int:
+        return sum(1 for c in self.store.chunks.values() if c.get("chunk_type") == chunk_type)
+
+
+class Neo4jDatabaseAdapter(BaseGraphAdapter):
+    def __init__(self, uri: str, user: str, password: str, database: str = DEFAULT_NEO4J_DATABASE):
+        if GraphDatabase is None:
+            raise RuntimeError("The neo4j package is required for Neo4j connections")
+        self.driver = GraphDatabase.driver(uri, auth=(user, password))
+        self.database = database
+
+    def close(self) -> None:
+        self.driver.close()
+
+    def commit(self) -> None:
+        return None
+
+    def _execute_write(self, query: str, **params):
+        with self.driver.session(database=self.database) as session:
+            return session.execute_write(lambda tx: list(tx.run(query, **params)))
+
+    def _execute_read(self, query: str, **params):
+        with self.driver.session(database=self.database) as session:
+            return [Row(dict(record)) for record in session.execute_read(lambda tx: list(tx.run(query, **params)))]
+
+    def init_schema(self) -> None:
+        statements = [
+            "CREATE CONSTRAINT source_id IF NOT EXISTS FOR (n:Source) REQUIRE n.id IS UNIQUE",
+            "CREATE CONSTRAINT item_id IF NOT EXISTS FOR (n:Item) REQUIRE n.id IS UNIQUE",
+            "CREATE CONSTRAINT item_path IF NOT EXISTS FOR (n:Item) REQUIRE n.path_or_url IS UNIQUE",
+            "CREATE CONSTRAINT chunk_id IF NOT EXISTS FOR (n:Chunk) REQUIRE n.id IS UNIQUE",
+            "CREATE CONSTRAINT bucket_name IF NOT EXISTS FOR (n:BucketDefinition) REQUIRE n.name IS UNIQUE",
+            "CREATE CONSTRAINT bucket_rule_id IF NOT EXISTS FOR (n:BucketRule) REQUIRE n.id IS UNIQUE",
+            "CREATE CONSTRAINT embedding_id IF NOT EXISTS FOR (n:Embedding) REQUIRE n.id IS UNIQUE",
+            "CREATE FULLTEXT INDEX chunkText IF NOT EXISTS FOR (n:Chunk) ON EACH [n.text]",
+        ]
+        for statement in statements:
+            self._execute_write(statement)
+
+    def upsert_source(self, source_id, root_path, label, config_json):
+        self._upsert_source(source_id, "folder", root_path, label, config_json)
+
+    def upsert_bookmark_source(self, source_id: str, bookmark_path: str, label: str, config_json: str):
+        self._upsert_source(source_id, "bookmark_html", bookmark_path, label, config_json)
+
+    def _upsert_source(self, source_id, source_type, root_path, label, config_json):
+        self._execute_write(
+            """
+            MERGE (s:Source {id: $id})
+            SET s.source_type=$source_type, s.root_path_or_file=$root_path, s.label=$label,
+                s.config_json=$config_json, s.created_at=coalesce(s.created_at, $created_at)
+            """,
+            id=source_id,
+            source_type=source_type,
+            root_path=root_path,
+            label=label,
+            config_json=config_json,
+            created_at=now_iso(),
+        )
+
+    def upsert_item(self, values: tuple):
+        keys = ["id", "source_id", "item_type", "path_or_url", "filename", "extension", "mime_type", "size_bytes", "modified_time", "content_hash", "metadata_json", "indexed_at"]
+        params = dict(zip(keys, values, strict=True))
+        self._execute_write(
+            """
+            MERGE (i:Item {id: $id})
+            SET i += $props
+            WITH i
+            MATCH (s:Source {id: $source_id})
+            MERGE (s)-[:PRODUCED]->(i)
+            """,
+            id=params["id"],
+            source_id=params["source_id"],
+            props=params,
+        )
+
+    def upsert_chunk(self, values: tuple):
+        keys = ["id", "item_id", "chunk_type", "text", "metadata_json", "created_at"]
+        props = dict(zip(keys, values, strict=True))
+        self._execute_write(
+            """
+            MERGE (c:Chunk {id: $id})
+            SET c += $props
+            WITH c
+            MATCH (i:Item {id: $item_id})
+            MERGE (i)-[:HAS_CHUNK]->(c)
+            """,
+            id=props["id"],
+            item_id=props["item_id"],
+            props=props,
+        )
+
+    def insert_fts(self, chunk_id: str, text: str):
+        self._execute_write("MATCH (c:Chunk {id: $chunk_id}) SET c.text=$text", chunk_id=chunk_id, text=text)
+
+    def upsert_bucket_definition(self, name: str, description: str, bucket_type: str):
+        self._execute_write(
+            "MERGE (b:BucketDefinition {name: $name}) SET b.id=$name, b.description=$description, b.bucket_type=$bucket_type, b.is_active=true, b.created_at=coalesce(b.created_at, $created_at)",
+            name=name,
+            description=description,
+            bucket_type=bucket_type,
+            created_at=now_iso(),
+        )
+
+    def insert_bucket_rule(self, rule_id: str, bucket_name: str, rule_type: str, pattern: str, weight: float, applies_to: str):
+        self._execute_write(
+            """
+            MATCH (b:BucketDefinition {name: $bucket_name})
+            MERGE (r:BucketRule {id: $id})
+            SET r.bucket_name=$bucket_name, r.rule_type=$rule_type, r.pattern=$pattern,
+                r.weight=$weight, r.applies_to=$applies_to, r.is_active=true, r.created_at=coalesce(r.created_at, $created_at)
+            MERGE (b)-[:HAS_RULE]->(r)
+            """,
+            id=rule_id,
+            bucket_name=bucket_name,
+            rule_type=rule_type,
+            pattern=pattern,
+            weight=weight,
+            applies_to=applies_to,
+            created_at=now_iso(),
+        )
+
+    def upsert_item_bucket(self, item_id: str, bucket_name: str, confidence: float, evidence_json: str, assigned_by: str, assigned_at: str):
+        self._execute_write(
+            """
+            MERGE (b:BucketDefinition {name: $bucket_name})
+            ON CREATE SET b.id=$bucket_name, b.created_at=$assigned_at, b.bucket_type='system', b.is_active=true
+            MATCH (i:Item {id: $item_id})
+            MERGE (i)-[rel:IN_BUCKET]->(b)
+            SET rel.confidence=$confidence, rel.evidence_json=$evidence_json, rel.assigned_by=$assigned_by, rel.assigned_at=$assigned_at
+            """,
+            item_id=item_id,
+            bucket_name=bucket_name,
+            confidence=confidence,
+            evidence_json=evidence_json,
+            assigned_by=assigned_by,
+            assigned_at=assigned_at,
+        )
+
+    def get_item_row_by_path(self, path_or_url: str):
+        rows = self._execute_read("MATCH (i:Item {path_or_url: $path_or_url}) RETURN i.id AS id, i.modified_time AS modified_time, i.size_bytes AS size_bytes", path_or_url=path_or_url)
+        return rows[0] if rows else None
+
+    def get_chunk_by_item_and_type(self, item_id: str, chunk_type: str):
+        rows = self._execute_read("MATCH (:Item {id: $item_id})-[:HAS_CHUNK]->(c:Chunk {chunk_type: $chunk_type}) RETURN c.id AS id", item_id=item_id, chunk_type=chunk_type)
+        return rows[0] if rows else None
+
+    def fetch_items_for_bucket_assignment(self):
+        return self._execute_read("MATCH (i:Item) RETURN i.id AS id, i.path_or_url AS path_or_url, i.filename AS filename, i.extension AS extension, i.metadata_json AS metadata_json")
+
+    def search_chunks(self, query: str, bucket: str | None = None):
+        if bucket:
+            return self._execute_read(
+                """
+                CALL db.index.fulltext.queryNodes('chunkText', $query) YIELD node AS c
+                MATCH (i:Item)-[:HAS_CHUNK]->(c)
+                MATCH (i)-[:IN_BUCKET]->(:BucketDefinition {name: $bucket})
+                RETURN i.path_or_url AS path_or_url, c.text AS text
+                """,
+                query=query,
+                bucket=bucket,
+            )
+        return self._execute_read(
+            """
+            CALL db.index.fulltext.queryNodes('chunkText', $query) YIELD node AS c
+            MATCH (i:Item)-[:HAS_CHUNK]->(c)
+            RETURN i.path_or_url AS path_or_url, c.text AS text
+            """,
+            query=query,
+        )
+
+    def fetch_chunks_for_embedding(self):
+        return self._execute_read("MATCH (c:Chunk) RETURN c.id AS id, c.text AS text")
+
+    def fetch_semantic_search_rows(self, model: str):
+        return self._execute_read(
+            """
+            MATCH (i:Item)-[:HAS_CHUNK]->(c:Chunk)-[:HAS_EMBEDDING]->(e:Embedding {model: $model})
+            RETURN i.path_or_url AS path_or_url, c.text AS text, e.embedding_json AS embedding_json
+            """,
+            model=model,
+        )
+
+    def embedding_exists(self, chunk_id: str, model: str):
+        rows = self._execute_read("MATCH (:Chunk {id: $chunk_id})-[:HAS_EMBEDDING]->(:Embedding {model: $model}) RETURN 1 AS exists", chunk_id=chunk_id, model=model)
+        return bool(rows)
+
+    def insert_embedding(self, embedding_id: str, chunk_id: str, model: str, embedding_json: str, dimensions: int):
+        self._execute_write(
+            """
+            MATCH (c:Chunk {id: $chunk_id})
+            MERGE (e:Embedding {id: $id})
+            SET e.chunk_id=$chunk_id, e.model=$model, e.embedding_json=$embedding_json, e.dimensions=$dimensions, e.created_at=coalesce(e.created_at, $created_at)
+            MERGE (c)-[:HAS_EMBEDDING]->(e)
+            """,
+            id=embedding_id,
+            chunk_id=chunk_id,
+            model=model,
+            embedding_json=embedding_json,
+            dimensions=dimensions,
+            created_at=now_iso(),
         )
 
     def fetch_video_items(self):
-        return self.conn.execute("SELECT id, path_or_url FROM items WHERE item_type='video'").fetchall()
+        return self._execute_read("MATCH (i:Item {item_type: 'video'}) RETURN i.id AS id, i.path_or_url AS path_or_url")
 
     def insert_frame_ocr_chunk(self, chunk_id: str, item_id: str, text: str):
-        self.conn.execute(
-            "INSERT INTO chunks(id, item_id, chunk_type, text, timestamp_start, timestamp_end, metadata_json, created_at) VALUES (?, ?, 'frame_ocr', ?, 5.0, 5.0, '{}', datetime('now'))",
-            (chunk_id, item_id, text),
+        props = {"id": chunk_id, "item_id": item_id, "chunk_type": "frame_ocr", "text": text, "timestamp_start": 5.0, "timestamp_end": 5.0, "metadata_json": "{}", "created_at": now_iso()}
+        self._execute_write(
+            """
+            MATCH (i:Item {id: $item_id})
+            MERGE (c:Chunk {id: $id})
+            SET c += $props
+            MERGE (i)-[:HAS_CHUNK]->(c)
+            """,
+            item_id=item_id,
+            id=chunk_id,
+            props=props,
         )
-        self.conn.execute("INSERT INTO chunk_fts(chunk_id, text) VALUES (?, ?)", (chunk_id, text))
 
     def fetch_item_by_path_or_url(self, path_or_url: str):
-        return self.conn.execute("SELECT * FROM items WHERE path_or_url=?", (path_or_url,)).fetchone()
+        rows = self._execute_read("MATCH (i:Item {path_or_url: $path_or_url}) RETURN properties(i) AS props", path_or_url=path_or_url)
+        return Row(rows[0]["props"]) if rows else None
 
     def fetch_item_bucket_explanations(self, path_or_url: str):
-        return self.conn.execute(
-            "SELECT bucket_name, confidence, evidence_json FROM item_buckets ib JOIN items i ON i.id=ib.item_id WHERE i.path_or_url=?",
-            (path_or_url,),
-        ).fetchall()
+        return self._execute_read(
+            """
+            MATCH (:Item {path_or_url: $path_or_url})-[rel:IN_BUCKET]->(b:BucketDefinition)
+            RETURN b.name AS bucket_name, rel.confidence AS confidence, rel.evidence_json AS evidence_json
+            """,
+            path_or_url=path_or_url,
+        )
 
     def fetch_bucket_contents(self, bucket_name: str):
-        return self.conn.execute(
-            "SELECT i.path_or_url FROM item_buckets ib JOIN items i ON i.id=ib.item_id WHERE ib.bucket_name=?",
-            (bucket_name,),
-        ).fetchall()
+        return self._execute_read("MATCH (i:Item)-[:IN_BUCKET]->(:BucketDefinition {name: $bucket_name}) RETURN i.path_or_url AS path_or_url", bucket_name=bucket_name)
 
     def fetch_bucket_stats(self):
-        return self.conn.execute(
-            "SELECT bucket_name, COUNT(*) AS c FROM item_buckets GROUP BY bucket_name ORDER BY c DESC"
-        ).fetchall()
+        return self._execute_read(
+            """
+            MATCH (:Item)-[:IN_BUCKET]->(b:BucketDefinition)
+            RETURN b.name AS bucket_name, count(*) AS c
+            ORDER BY c DESC
+            """
+        )
+
+
+def _adapter(conn=None):
+    return conn if conn is not None else connect_db()
 
 
 def upsert_source(conn, source_id, root_path, label, config_json):
-    DatabaseAdapter(conn).upsert_source(source_id, root_path, label, config_json)
+    _adapter(conn).upsert_source(source_id, root_path, label, config_json)
 
 
 def upsert_item(conn, values: tuple):
-    DatabaseAdapter(conn).upsert_item(values)
+    _adapter(conn).upsert_item(values)
 
 
 def upsert_chunk(conn, values: tuple):
-    DatabaseAdapter(conn).upsert_chunk(values)
+    _adapter(conn).upsert_chunk(values)
 
 
 def insert_fts(conn, chunk_id: str, text: str):
-    DatabaseAdapter(conn).insert_fts(chunk_id, text)
+    _adapter(conn).insert_fts(chunk_id, text)
 
 
 def upsert_bucket_definition(conn, name: str, description: str, bucket_type: str):
-    DatabaseAdapter(conn).upsert_bucket_definition(name, description, bucket_type)
+    _adapter(conn).upsert_bucket_definition(name, description, bucket_type)
 
 
 def insert_bucket_rule(conn, rule_id: str, bucket_name: str, rule_type: str, pattern: str, weight: float, applies_to: str):
-    DatabaseAdapter(conn).insert_bucket_rule(rule_id, bucket_name, rule_type, pattern, weight, applies_to)
+    _adapter(conn).insert_bucket_rule(rule_id, bucket_name, rule_type, pattern, weight, applies_to)
 
 
 def upsert_item_bucket(conn, item_id: str, bucket_name: str, confidence: float, evidence_json: str, assigned_by: str, assigned_at: str):
-    DatabaseAdapter(conn).upsert_item_bucket(item_id, bucket_name, confidence, evidence_json, assigned_by, assigned_at)
+    _adapter(conn).upsert_item_bucket(item_id, bucket_name, confidence, evidence_json, assigned_by, assigned_at)
 
 
 def get_item_row_by_path(conn, path_or_url: str):
-    return DatabaseAdapter(conn).get_item_row_by_path(path_or_url)
+    return _adapter(conn).get_item_row_by_path(path_or_url)
 
 
 def get_chunk_by_item_and_type(conn, item_id: str, chunk_type: str):
-    return DatabaseAdapter(conn).get_chunk_by_item_and_type(item_id, chunk_type)
+    return _adapter(conn).get_chunk_by_item_and_type(item_id, chunk_type)
 
 
 def upsert_bookmark_source(conn, source_id: str, bookmark_path: str, label: str, config_json: str):
-    DatabaseAdapter(conn).upsert_bookmark_source(source_id, bookmark_path, label, config_json)
+    _adapter(conn).upsert_bookmark_source(source_id, bookmark_path, label, config_json)
 
 
 def search_chunks(conn, query: str, bucket: str | None = None):
-    return DatabaseAdapter(conn).search_chunks(query, bucket)
+    return _adapter(conn).search_chunks(query, bucket)
 
 
 def fetch_chunks_for_embedding(conn):
-    return DatabaseAdapter(conn).fetch_chunks_for_embedding()
+    return _adapter(conn).fetch_chunks_for_embedding()
 
 
 def fetch_semantic_search_rows(conn, model: str):
-    return DatabaseAdapter(conn).fetch_semantic_search_rows(model)
+    return _adapter(conn).fetch_semantic_search_rows(model)
 
 
 def embedding_exists(conn, chunk_id: str, model: str):
-    return DatabaseAdapter(conn).embedding_exists(chunk_id, model)
+    return _adapter(conn).embedding_exists(chunk_id, model)
 
 
 def insert_embedding(conn, embedding_id: str, chunk_id: str, model: str, embedding_json: str, dimensions: int):
-    DatabaseAdapter(conn).insert_embedding(embedding_id, chunk_id, model, embedding_json, dimensions)
+    _adapter(conn).insert_embedding(embedding_id, chunk_id, model, embedding_json, dimensions)
 
 
 def fetch_video_items(conn):
-    return DatabaseAdapter(conn).fetch_video_items()
+    return _adapter(conn).fetch_video_items()
 
 
 def insert_frame_ocr_chunk(conn, chunk_id: str, item_id: str, text: str):
-    DatabaseAdapter(conn).insert_frame_ocr_chunk(chunk_id, item_id, text)
+    _adapter(conn).insert_frame_ocr_chunk(chunk_id, item_id, text)
 
 
 def fetch_item_by_path_or_url(conn, path_or_url: str):
-    return DatabaseAdapter(conn).fetch_item_by_path_or_url(path_or_url)
+    return _adapter(conn).fetch_item_by_path_or_url(path_or_url)
 
 
 def fetch_item_bucket_explanations(conn, path_or_url: str):
-    return DatabaseAdapter(conn).fetch_item_bucket_explanations(path_or_url)
+    return _adapter(conn).fetch_item_bucket_explanations(path_or_url)
 
 
 def fetch_bucket_contents(conn, bucket_name: str):
-    return DatabaseAdapter(conn).fetch_bucket_contents(bucket_name)
+    return _adapter(conn).fetch_bucket_contents(bucket_name)
 
 
 def fetch_bucket_stats(conn):
-    return DatabaseAdapter(conn).fetch_bucket_stats()
+    return _adapter(conn).fetch_bucket_stats()

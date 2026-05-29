@@ -31,8 +31,7 @@ def assign_buckets(db_path: Path | None = None, config_dir: Path | None = None) 
                     r.get("applies_to", "text"),
                 )
 
-        # todo: move to db wrapper
-        items = conn.execute("SELECT id, path_or_url, filename, extension, metadata_json FROM items").fetchall()
+        items = conn.fetch_items_for_bucket_assignment()
         for it in items:
             text = " ".join([it["path_or_url"] or "", it["filename"] or "", it["extension"] or "", it["metadata_json"] or ""])
             matched = False
