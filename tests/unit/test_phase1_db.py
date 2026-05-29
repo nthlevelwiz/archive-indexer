@@ -3,6 +3,10 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
+from archive_indexer.adapters import db as db_mod
+
 ROOT = Path(__file__).resolve().parents[2]
 ENV = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
 
@@ -40,3 +44,81 @@ def test_init_db_ignores_legacy_sqlite_file_in_data_dir(tmp_path: Path):
 
     assert legacy_sqlite.read_bytes().startswith(b"SQLite format 3")
     assert (data_dir / "archive_graph.json").exists()
+
+
+def test_env_neo4j_connection_details_attempt_neo4j_and_fail_without_fallback(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
+    env_keys = ["NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD", "NEO4J_DATABASE"]
+    original_env = {key: os.environ.get(key) for key in env_keys}
+    original_config = (
+        db_mod._neo4j_uri,
+        db_mod._neo4j_user,
+        db_mod._neo4j_password,
+        db_mod._neo4j_database,
+    )
+    original_graph_database = db_mod.GraphDatabase
+    calls: dict[str, object] = {}
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute_write(self, func):
+            raise ConnectionRefusedError("neo4j server is unavailable")
+
+    class FakeDriver:
+        def session(self, database=None):
+            calls["database"] = database
+            return FakeSession()
+
+        def close(self):
+            calls["closed"] = True
+
+    class FakeGraphDatabase:
+        @staticmethod
+        def driver(uri, auth):
+            calls["uri"] = uri
+            calls["auth"] = auth
+            return FakeDriver()
+
+    try:
+        os.environ["NEO4J_URI"] = "bolt://127.0.0.1:17687"
+        os.environ["NEO4J_USER"] = "neo4j"
+        os.environ["NEO4J_PASSWORD"] = "test-password"
+        os.environ["NEO4J_DATABASE"] = "neo4j"
+        db_mod.set_neo4j_config(
+            os.environ["NEO4J_URI"],
+            os.environ["NEO4J_USER"],
+            os.environ["NEO4J_PASSWORD"],
+            os.environ["NEO4J_DATABASE"],
+        )
+        db_mod.set_data_dir(tmp_path / "data")
+
+        db_mod.GraphDatabase = FakeGraphDatabase
+        with pytest.raises(ConnectionRefusedError, match="neo4j server is unavailable"):
+            db_mod.init_db()
+
+        captured = capsys.readouterr()
+        assert "Using fallback file-backed graph database" not in captured.err
+        assert not (tmp_path / "data" / "archive_graph.json").exists()
+        assert calls == {
+            "uri": "bolt://127.0.0.1:17687",
+            "auth": ("neo4j", "test-password"),
+            "database": "neo4j",
+            "closed": True,
+        }
+    finally:
+        for key, value in original_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        (
+            db_mod._neo4j_uri,
+            db_mod._neo4j_user,
+            db_mod._neo4j_password,
+            db_mod._neo4j_database,
+        ) = original_config
+        db_mod.GraphDatabase = original_graph_database
