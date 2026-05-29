@@ -19,33 +19,47 @@ This project does **not** try to fully understand every file. It creates useful 
    pip install -e .[dev]
    ```
 
-2. **Initialize the database**
+2. **Generate fake inputs for a quick local test run**
+
+   ```bash
+   python scripts/generate_fake_inputs.py
+   ```
+
+   This creates deterministic synthetic files and manifests under `sample_data/generated/`.
+   The default `config/sources.yaml` points at that generated directory, so you can run the rest
+   of the workflow without using personal archive files. To reset the generated sample data later, run:
+
+   ```bash
+   python scripts/generate_fake_inputs.py --clean
+   ```
+
+3. **Initialize the database**
 
    ```bash
    python -m archive_indexer init-db
    ```
 
-3. **Create or update source config** in `config/sources.yaml` with your folder paths and bookmark export files.
+4. **Create or update source config** in `config/sources.yaml` with your folder paths and bookmark export files.
 
-4. **Ingest content**
+5. **Ingest content**
 
    ```bash
    python -m archive_indexer ingest
    ```
 
-5. **Assign buckets**
+6. **Assign buckets**
 
    ```bash
    python -m archive_indexer assign-buckets
    ```
 
-6. **Run a keyword search**
+7. **Run a keyword search**
 
    ```bash
    python -m archive_indexer search "ollama embeddings"
    ```
 
-7. **(Optional) Generate embeddings for semantic search**
+8. **(Optional) Generate embeddings for semantic search**
 
    ```bash
    python -m archive_indexer embed
