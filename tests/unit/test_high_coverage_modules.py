@@ -1,5 +1,4 @@
 import json
-import sqlite3
 from pathlib import Path
 
 import pytest
@@ -8,7 +7,8 @@ from archive_indexer.adapters import db as db_mod
 from archive_indexer.adapters.embedding import cosine_similarity, embed_text
 from archive_indexer.adapters.ocr import extract_frame_ocr_text
 from archive_indexer.app import cli
-from archive_indexer.services import ingest_service
+from archive_indexer.services import bucket_service, ingest_service
+from mock_db import MockGraphAdapter
 
 
 def test_embedding_and_ocr_basics():
@@ -19,15 +19,8 @@ def test_embedding_and_ocr_basics():
     assert extract_frame_ocr_text("/tmp/my-video_file.mp4", second=9) == "frame 9s text from my video file"
 
 
-def _new_db(tmp_path: Path):
-    db_path = tmp_path / "db" / "archive_index.sqlite"
-    db_mod.init_db(db_path)
-    return db_path
-
-
 def test_db_adapters_end_to_end(tmp_path: Path):
-    db_path = _new_db(tmp_path)
-    conn = db_mod.connect_db(db_path)
+    conn = MockGraphAdapter()
     try:
         db_mod.upsert_source(conn, "s1", "/tmp", "lbl", "{}")
         db_mod.upsert_item(conn, ("i1", "s1", "file", "/tmp/a.txt", "a.txt", ".txt", "text/plain", 1, "m", "h", "{}", db_mod.now_iso()))
@@ -63,14 +56,19 @@ def test_ingest_folders_and_bookmarks_and_cli_commands(tmp_path: Path, monkeypat
         encoding="utf-8",
     )
 
-    db_path = data_dir / "archive_index.sqlite"
+    mock_db = MockGraphAdapter()
+    monkeypatch.setattr(cli, "init_db", mock_db.init_schema)
+    monkeypatch.setattr(cli, "DatabaseAdapter", lambda: mock_db)
+    monkeypatch.setattr(ingest_service, "connect_db", lambda db_path=None: mock_db)
+    monkeypatch.setattr(bucket_service, "connect_db", lambda db_path=None: mock_db)
+
     assert cli.main(["--data-dir", str(data_dir), "init-db"]) == 0
     assert cli.main(["--data-dir", str(data_dir), "--config-dir", str(config_dir), "ingest", "--source", "docs"]) == 0
     out = capsys.readouterr().out
     assert "ingested" in out
 
     # second ingest should skip unchanged files
-    inserted_second = ingest_service.ingest_folders(db_path, config_dir, "docs")
+    inserted_second = ingest_service.ingest_folders(None, config_dir, "docs")
     assert inserted_second == 0
 
     bm = tmp_path / "bookmarks.html"
@@ -81,8 +79,7 @@ def test_ingest_folders_and_bookmarks_and_cli_commands(tmp_path: Path, monkeypat
     assert cli.main(["--data-dir", str(data_dir), "ocr-videos"]) == 0
     assert cli.main(["--data-dir", str(data_dir), "--config-dir", str(config_dir), "assign-buckets"]) == 0
 
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = mock_db
     try:
         first = conn.execute("SELECT path_or_url FROM items LIMIT 1").fetchone()["path_or_url"]
         assert cli.main(["--data-dir", str(data_dir), "show-item", first]) == 0

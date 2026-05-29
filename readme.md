@@ -2,7 +2,7 @@
 
 A local-first indexing system for old saved TikToks, videos, audio files, documents, downloads, and browser bookmarks.
 
-The goal is to turn messy folders and bookmark exports into a searchable local archive using deterministic metadata extraction, configurable buckets, OCR from video frames, SQLite, and Ollama embeddings.
+The goal is to turn messy folders and bookmark exports into a searchable local archive using deterministic metadata extraction, configurable buckets, OCR from video frames, Neo4j, and Ollama embeddings.
 
 This project does **not** try to fully understand every file. It creates useful searchable “index cards” from filenames, folder paths, metadata, bookmark titles, URLs, and video frame text.
 
@@ -76,7 +76,7 @@ This project does **not** try to fully understand every file. It creates useful 
 * Keep bucket assignment transparent and debuggable.
 * Avoid Whisper or audio transcription for the MVP.
 * Extract video text by periodically sampling frames and running OCR.
-* Store everything in a local SQLite database.
+* Store the archive graph in Neo4j; missing Neo4j configuration fails loudly instead of using a local database fallback.
 * Make it easy to add, remove, or revise buckets over time.
 
 ---
@@ -217,7 +217,7 @@ MVP requirement:
 * Recursively scan folders.
 * Ignore hidden/system files by default.
 * Avoid re-indexing unchanged files.
-* Record files in SQLite.
+* Record files as Neo4j `Item` nodes linked to their source.
 
 ---
 
@@ -485,98 +485,35 @@ MVP requirement:
 
 ---
 
-### 9. SQLite Storage
+### 9. Neo4j Storage
 
-The MVP uses SQLite as the main database.
+The MVP uses Neo4j as the primary database. Sources, items, chunks, bucket definitions, rules, and embeddings are represented as nodes connected by explicit relationships. `init-db` creates uniqueness constraints plus a full-text index on `Chunk.text`.
 
-Minimal schema:
+Core graph model:
 
-```sql
-CREATE TABLE sources (
-  id TEXT PRIMARY KEY,
-  source_type TEXT NOT NULL,
-  root_path_or_file TEXT NOT NULL,
-  label TEXT,
-  config_json TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE items (
-  id TEXT PRIMARY KEY,
-  source_id TEXT NOT NULL,
-  item_type TEXT NOT NULL,
-  path_or_url TEXT NOT NULL UNIQUE,
-  filename TEXT,
-  extension TEXT,
-  mime_type TEXT,
-  size_bytes INTEGER,
-  modified_time TEXT,
-  content_hash TEXT,
-  metadata_json TEXT,
-  indexed_at TEXT NOT NULL
-);
-
-CREATE TABLE chunks (
-  id TEXT PRIMARY KEY,
-  item_id TEXT NOT NULL,
-  chunk_type TEXT NOT NULL,
-  text TEXT NOT NULL,
-  timestamp_start REAL,
-  timestamp_end REAL,
-  metadata_json TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE bucket_definitions (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE,
-  description TEXT,
-  bucket_type TEXT,
-  is_active INTEGER DEFAULT 1,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE bucket_rules (
-  id TEXT PRIMARY KEY,
-  bucket_name TEXT NOT NULL,
-  rule_type TEXT NOT NULL,
-  pattern TEXT NOT NULL,
-  weight REAL DEFAULT 1.0,
-  applies_to TEXT,
-  is_active INTEGER DEFAULT 1,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE item_buckets (
-  item_id TEXT NOT NULL,
-  bucket_name TEXT NOT NULL,
-  confidence REAL NOT NULL,
-  evidence_json TEXT,
-  assigned_by TEXT NOT NULL,
-  assigned_at TEXT NOT NULL,
-  PRIMARY KEY (item_id, bucket_name)
-);
-
-CREATE TABLE embeddings (
-  id TEXT PRIMARY KEY,
-  chunk_id TEXT NOT NULL,
-  model TEXT NOT NULL,
-  embedding_json TEXT NOT NULL,
-  dimensions INTEGER,
-  created_at TEXT NOT NULL
-);
-
-CREATE VIRTUAL TABLE chunk_fts USING fts5(
-  chunk_id UNINDEXED,
-  text
-);
+```text
+(:Source)-[:PRODUCED]->(:Item)-[:HAS_CHUNK]->(:Chunk)
+(:BucketDefinition)-[:HAS_RULE]->(:BucketRule)
+(:Item)-[:IN_BUCKET {confidence, evidence_json, assigned_by, assigned_at}]->(:BucketDefinition)
+(:Chunk)-[:HAS_EMBEDDING]->(:Embedding)
 ```
+
+Configure a real Neo4j instance with:
+
+```bash
+export NEO4J_URI=bolt://localhost:7687
+export NEO4J_USER=neo4j
+export NEO4J_PASSWORD=your-password
+python -m archive_indexer init-db
+```
+
+If `NEO4J_URI` is not set, database commands fail loudly. Tests mock the database adapter rather than using a local file-backed database.
 
 MVP requirement:
 
-* Store sources, items, chunks, buckets, bucket evidence, embeddings, and FTS text.
-* Use SQLite FTS5 for keyword search.
-* Store embeddings as JSON at first.
+* Store sources, items, chunks, buckets, bucket evidence, embeddings, and searchable chunk text as graph data.
+* Use the Neo4j full-text index on `Chunk.text` for keyword search.
+* Store embeddings as JSON properties at first.
 
 ---
 
@@ -593,7 +530,7 @@ Ollama /api/embed
    ↓
 embedding vector
    ↓
-embeddings table
+Embedding nodes
 ```
 
 MVP requirement:
@@ -693,7 +630,7 @@ python -m archive_indexer show /archive/old_tiktoks/saved/video_8392.mp4
 
 MVP search behavior:
 
-1. Run SQLite FTS keyword search.
+1. Run Neo4j full-text keyword search.
 2. Run embedding similarity search.
 3. Merge and rank results.
 4. Show path or URL.
@@ -764,7 +701,6 @@ archive-indexer/
     buckets.yaml
     settings.yaml
   data/
-    archive_index.sqlite
     frame_cache/
   src/
     archive_indexer/
@@ -818,15 +754,14 @@ prints available commands.
 
 ## Phase 1: Database Setup
 
-Goal: Create the SQLite database and schema.
+Goal: Create the Neo4j constraints, indexes, and graph schema conventions.
 
 Tasks:
 
 * Implement `init-db` command.
-* Create all MVP tables.
-* Create FTS5 table.
-* Add indexes.
-* Add simple migration/version table if desired.
+* Create uniqueness constraints for source, item, chunk, bucket, rule, and embedding nodes.
+* Create a Neo4j full-text index for chunk keyword search.
+* Document the graph relationships used by ingestion, buckets, search, OCR, and embeddings.
 
 Definition of done:
 
@@ -834,13 +769,7 @@ Definition of done:
 python -m archive_indexer init-db
 ```
 
-creates:
-
-```text
-data/archive_index.sqlite
-```
-
-with all required tables.
+initializes constraints and indexes in the configured Neo4j database. If `NEO4J_URI` is unset, the command exits with an error instead of creating a local fallback database.
 
 ---
 
@@ -935,7 +864,7 @@ creates rows in `item_buckets` with confidence and evidence.
 
 ## Phase 6: Keyword Search
 
-Goal: Search using SQLite FTS5.
+Goal: Search using the Neo4j full-text chunk index.
 
 Tasks:
 
@@ -966,7 +895,7 @@ Tasks:
 * Add Ollama client.
 * Read embedding model from config.
 * Generate embeddings for chunks.
-* Store embeddings in SQLite as JSON.
+* Store embeddings as Neo4j `Embedding` nodes with JSON vector payloads.
 * Skip already-embedded chunks.
 * Implement cosine similarity search.
 
@@ -1116,7 +1045,7 @@ Possible features after MVP:
 * Export results as CSV or JSON.
 * Watch mode for new files.
 * Integration with Open WebUI or a local RAG chat interface.
-* Switch from JSON embeddings in SQLite to a vector database.
+* Optionally migrate JSON embedding properties to Neo4j native vector indexes.
 * Add image OCR for screenshots and memes.
 * Add perceptual hashing for duplicate images/videos.
 

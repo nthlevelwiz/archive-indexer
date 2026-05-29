@@ -60,7 +60,7 @@ tests/
 - `seed_buckets_yaml`:
   - writes `config/buckets.yaml` with source/topic/status buckets including `review_later` fallback.
 - `db_path`:
-  - points to `data/archive_index.sqlite`.
+  - uses mocked Neo4j adapter connections.
 - `run_cli` helper:
   - executes `python -m archive_indexer ...` in temp workspace and captures stdout/stderr/exit code.
 - `mock_ollama_embed`:
@@ -304,7 +304,7 @@ Assertions:
 - Video frame OCR: `unit/test_ocr_scheduler.py`, `unit/test_ocr_filtering.py`, `integration/test_ocr_pipeline.py`
 - Bucket configuration: `unit/test_config_buckets.py`, `integration/test_assign_buckets.py`
 - Rule-based assignment: `unit/test_bucket_rule_matchers.py`, `unit/test_bucket_scoring.py`, `integration/test_assign_buckets.py`
-- SQLite storage: `integration/test_init_db_schema.py`, `integration/test_chunk_fts_sync.py`
+- Neo4j storage: `integration/test_init_db_schema.py`, `integration/test_chunk_fulltext_sync.py`
 - Ollama embeddings: `unit/test_embedding_dedup.py`, `integration/test_embed_pipeline.py`
 - Search CLI: `e2e/test_cli_happy_path.py`, `e2e/test_cli_search_modes.py`
 
