@@ -68,6 +68,59 @@ This project does **not** try to fully understand every file. It creates useful 
 
 ---
 
+## Visualize the Codebase with Blarify and Neo4j
+
+Archive Indexer can export the repository's source-code structure to Neo4j using
+[Blarify](https://pypi.org/project/blarify/). This is separate from the archive
+content graph used by `ingest`; it creates a code graph so you can inspect files,
+classes, functions, and their relationships in Neo4j Browser or Bloom.
+
+1. **Install the graph extra**
+
+   ```bash
+   pip install -e .[graph]
+   ```
+
+2. **Start Neo4j** (or point at an existing AuraDB/Neo4j instance). For a local
+   Docker instance, one option is:
+
+   ```bash
+   docker run --rm --name archive-indexer-neo4j \
+     -p 7474:7474 -p 7687:7687 \
+     -e NEO4J_AUTH=neo4j/password \
+     neo4j:5
+   ```
+
+3. **Build and save the Blarify graph**
+
+   ```bash
+   python -m archive_indexer \
+     --neo4j-uri bolt://localhost:7687 \
+     --neo4j-user neo4j \
+     --neo4j-password password \
+     visualize-code \
+     --root . \
+     --repo-id archive-indexer \
+     --entity-id local
+   ```
+
+   The command skips common generated, cache, data, documentation, and media
+   paths by default to keep the graph focused on code. You can override the
+   defaults with repeated comma-separated `--extensions-to-skip` and
+   `--names-to-skip` values. Add `--create-workflows`, `--create-documentation`,
+   or `--generate-embeddings` if your Neo4j/Blarify environment is configured for
+   those heavier enrichment steps.
+
+4. **Open Neo4j Browser** at <http://localhost:7474> and run a query such as:
+
+   ```cypher
+   MATCH (n)
+   RETURN labels(n) AS labels, n.name AS name, n.path AS path
+   LIMIT 50;
+   ```
+
+---
+
 ## Goals
 
 * Index old folders, saved videos, TikToks, audio files, documents, and bookmark exports.
