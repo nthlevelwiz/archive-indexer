@@ -10,12 +10,8 @@ from typing import Any
 
 try:
     from neo4j import GraphDatabase
-    from neo4j.exceptions import ServiceUnavailable
 except ImportError:  # pragma: no cover - exercised only when optional dependency is absent
     GraphDatabase = None  # type: ignore[assignment]
-
-    class ServiceUnavailable(Exception):
-        pass
 
 
 def now_iso() -> str:
@@ -25,7 +21,7 @@ def now_iso() -> str:
 DEFAULT_NEO4J_URI = "bolt://localhost:7687"
 DEFAULT_NEO4J_USER = "neo4j"
 DEFAULT_NEO4J_DATABASE = "neo4j"
-GRAPH_STORE_FILENAME = "archive_index.sqlite"
+GRAPH_STORE_FILENAME = "archive_graph.json"
 DATABASE_FILENAME = GRAPH_STORE_FILENAME
 
 _default_data_dir = Path("data")
@@ -69,7 +65,14 @@ class GraphStore:
             self._load(path)
 
     def _load(self, path: Path) -> None:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            # Ignore legacy SQLite/binary files or partial writes instead of
+            # crashing the CLI fallback path. The fallback now writes to
+            # archive_graph.json by default, but explicit old paths may still
+            # exist in user data directories.
+            return
         self.sources = data.get("sources", {})
         self.items = data.get("items", {})
         self.chunks = data.get("chunks", {})

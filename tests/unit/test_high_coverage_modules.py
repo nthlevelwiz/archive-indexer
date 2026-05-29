@@ -19,7 +19,7 @@ def test_embedding_and_ocr_basics():
 
 
 def _new_db(tmp_path: Path):
-    db_path = tmp_path / "db" / "archive_index.sqlite"
+    db_path = tmp_path / "db" / "archive_graph.json"
     db_mod.init_db(db_path)
     return db_path
 
@@ -62,7 +62,7 @@ def test_ingest_folders_and_bookmarks_and_cli_commands(tmp_path: Path, monkeypat
         encoding="utf-8",
     )
 
-    db_path = data_dir / "archive_index.sqlite"
+    db_path = data_dir / "archive_graph.json"
     assert cli.main(["--data-dir", str(data_dir), "init-db"]) == 0
     assert cli.main(["--data-dir", str(data_dir), "--config-dir", str(config_dir), "ingest", "--source", "docs"]) == 0
     out = capsys.readouterr().out

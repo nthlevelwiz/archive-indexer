@@ -37,7 +37,7 @@ def test_roadmap_phases_end_to_end(tmp_path: Path):
     result = run(["python", "-m", "archive_indexer", "--data-dir", "data", "search", "electric"], tmp_path)
     assert "electric" in result.stdout.lower()
 
-    db = tmp_path / "data" / "archive_index.sqlite"
+    db = tmp_path / "data" / "archive_graph.json"
     conn = connect_db(db)
     try:
         assert conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] >= 4

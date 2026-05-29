@@ -701,7 +701,7 @@ archive-indexer/
     buckets.yaml
     settings.yaml
   data/
-    archive_index.sqlite  # file-backed graph fallback when NEO4J_URI is unset
+    archive_graph.json  # file-backed graph fallback when NEO4J_URI is unset
     frame_cache/
   src/
     archive_indexer/
@@ -773,7 +773,7 @@ python -m archive_indexer init-db
 creates:
 
 ```text
-data/archive_index.sqlite
+data/archive_graph.json
 ```
 
 with the file-backed fallback graph when `NEO4J_URI` is unset, or initializes constraints/indexes in Neo4j when it is set.

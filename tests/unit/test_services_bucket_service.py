@@ -5,7 +5,7 @@ from archive_indexer.services.bucket_service import assign_buckets
 
 
 def test_assign_buckets_assigns_match_and_fallback(tmp_path: Path):
-    db_path = tmp_path / "data" / "archive_index.sqlite"
+    db_path = tmp_path / "data" / "archive_graph.json"
     cfg_dir = tmp_path / "config"
     cfg_dir.mkdir(parents=True)
     (cfg_dir / "buckets.yaml").write_text(
